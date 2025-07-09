@@ -1,0 +1,546 @@
+# Creating the filtered datasets for population genomic analyses
+
+### Checking the quality and relatedness of the samples ###
+
+# At this step, leaving out the control samples and the individuals from one sampling site that is not analysed in this study (Malta, MT)
+
+# Running STACKS populations for all other samples without filters for initial checks
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/2021+2017_controls+Malta_removed_popmap \
+-O ./ \
+-t $SLURM_CPUS_PER_TASK --vcf
+
+# Outputting quality statistics
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--depth --out no_filters_indv-depth
+
+vcftools --vcf ./populations.snps.vcf \
+--site-mean-depth --out no_filters_site-mean-depth
+
+vcftools --vcf ./populations.snps.vcf \
+--missing-site --out no_filters_missing-site
+
+vcftools --vcf ./populations.snps.vcf \
+--missing-indv --out no_filters_missing-indv
+
+vcftools --vcf ./populations.snps.vcf \
+--freq2 --out no_filters_freq
+
+### Checking and plotting the stats (R script) ###
+
+# Code edited from https://speciationgenomics.github.io/filtering_vcfs/
+library(tidyverse)
+
+# VCFtools --relatedness
+relatedness <- read_delim("./vcftools_relatedness_no_filters.relatedness", delim = "\t", col_names=TRUE)
+
+# VCFtools --relatedness2
+relatedness2 <- read_delim("./vcftools_relatedness2_no_filters.relatedness2", delim = "\t", col_names=TRUE)
+
+# Allele frequencies
+var_freq <- read_delim("./no_filters_freq.frq", delim = "\t",
+                       col_names = c("chr", "pos", "nalleles", "nchr", "a1", "a2"), skip = 1)
+
+# Find minor allele frequency
+var_freq$maf <- var_freq %>% select(a1, a2) %>% apply(1, function(z) min(z))
+
+a <- ggplot(var_freq, aes(maf)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)
+a + theme_light()
+
+summary(var_freq$maf)
+
+# Mean depth per site averaged across all individuals
+var_depth <- read_delim("./no_filters_site-mean-depth.ldepth.mean", delim = "\t")
+
+d <- ggplot(var_depth, aes(MEAN_DEPTH)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)
+d + theme_light()
+
+# There are a few variants with extremely high coverage, which is normal.
+summary(var_depth$MEAN_DEPTH)
+
+# Redrawing the plot to exclude extreme outliers
+d + theme_light() + xlim(0, 200)
+
+# VARIANT MISSINGNESS on a per-site basis
+var_miss <- read_delim("./max10indv_popgen_no_filters_missing-site.lmiss", delim = "\t")
+
+vm <- ggplot(var_miss, aes(F_MISS)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)
+vm + theme_light()
+
+summary(var_miss$F_MISS)
+
+# MEAN DEPTH PER INDIVIDUAL
+ind_depth <- read_delim("./max10indv_popgen_no_filters_indv-depth.idepth", delim = "\t")
+
+id <- ggplot(ind_depth, aes(MEAN_DEPTH)) + geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 60)
+id + theme_light()
+
+summary(ind_depth)
+View(ind_depth)
+
+# PROPORTION OF MISSING DATA PER INDIVIDUAL
+ind_miss  <- read_delim("./max10indv_popgen_no_filters_missing-indv.imiss", delim = "\t")
+
+im <- ggplot(ind_miss, aes(F_MISS)) + geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins=30)
+im + theme_light()
+
+summary(ind_miss)
+View(ind_miss)
+
+### Creating a filtered dataset for an exploratory PCA ###
+
+# Extracting depth-filtered loci from vcftools (input file: the unfiltered vcf)
+# Maximum mean depth threshold is set to ~2x mean depth (calculated in the previous section), minimum mean depth set to 10
+# Identified loci will be later combined into a blacklist for STACKS populations
+module load vcftools
+
+ vcftools --vcf ./populations.snps.vcf \
+--min-meanDP 10 --max-meanDP 85 \
+--removed-sites \
+--out vcftools_min-meanDP10_max-meanDP85
+
+# Writing the identified loci in STACKS blacklist format
+grep -f ./vcftools_min-meanDP10_max-meanDP85.removed.sites ./populations.sumstats.tsv -F -w | cut -f1 | sort -n | uniq > blacklist_min-meanDP10_max-meanDP85
+
+# Extracting all SNPs located on sex chromosomes
+# Sites will later be combined into a blacklist for STACKS populations
+cat populations.hapstats.tsv | grep -v '^#' \
+| awk '$2 == "SUPER_Z" || $2 == "SUPER_W" || $2 == "SUPER_W_unloc_1" || $2 == "SUPER_W_unloc_2" \
+|| $2 == "SUPER_W_unloc_3" || $2 == "SUPER_W_unloc_4" || $2 == "SUPER_W_unloc_5" \
+|| $2 == "SUPER_W_unloc_6" || $2 == "SUPER_W_unloc_7" || $2 == "SUPER_W_unloc_8" \
+|| $2 == "SUPER_W_unloc_9" || $2 == "SUPER_W_unloc_10" {print $0}' | cut -f 1 \
+| sort -n -u > blacklist_sex_chroms
+
+# Combining the depth and sex chrom blacklists into one
+sort -num blacklist_min-meanDP10_max-meanDP85 blacklist_sex_chroms > blacklist_sexrem_min-meanDP10_max-meanDP85
+
+# Re-running populations for all samples with basic filters and thinning to 1 SNP/locus (for PCA)
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/2021+2017_controls+Malta_removed_popmap \
+-O ./ \
+-p 15 -r 0.80 --min-mac 3 --max-obs-het 0.70 --write-random-snp -B blacklist_sexrem_min-meanDP10_max-meanDP85 \
+-t $SLURM_CPUS_PER_TASK --vcf
+
+# Zipping the input VCF file
+module load samtools
+bgzip -c populations.snps.vcf > populations.snps.vcf.gz
+
+
+### Exploratory PCA (R script) ###
+
+library(ade4)
+library(adegenet)
+library(ape)
+library(pegas)
+library(seqinr)
+library(ggplot2)
+library(vcfR)
+library(ggrepel)
+
+# Reading vcf data
+vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
+
+# Show summary of object (samples, variants, size, missing data)
+vcf
+
+# Adding population info
+pop.data <- read.table("2021+2017_controls+Malta_removed_popmap_genlight", sep = "\t", header = TRUE)
+
+# Converting vcf data into a genlight object & adding info
+x <- vcfR2genlight(vcf)
+ploidy(x) <- 2
+pop(x) <- pop.data$pop
+
+# Show summary of x
+x
+
+# Perform PCA
+pca <- glPca(x, nf=5)
+
+summary(pca)
+
+# Calculate and print out % variance explained by PC1, PC2 and PC3
+var_frac <- pca$eig/sum(pca$eig)
+pve <- var_frac*100
+
+print(pve[1])
+print(pve[2])
+print(pve[3])
+
+# Barplot "PCA Eigenvalues"
+barplot(100*pca$eig/sum(pca$eig), col = heat.colors(100), main="PCA Eigenvalues")
+title(ylab="Percent of variance\nexplained", line = 2)
+title(xlab="Eigenvalues", line = 1)
+
+# Drawing plot using ggplot2
+pca.scores <- as.data.frame(pca$scores)
+pca.scores$Population <- pop(x)
+pca.scores$ind <- indNames(x)
+
+# PC1 & PC2
+p12 <- ggplot(pca.scores, aes(x=PC1, y=PC2, colour=Population))+
+  geom_point(size=2) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  theme_bw()
+p12
+
+p12_labels <- p12 + geom_text_repel(aes(label=ind))
+
+# PC1 & PC3
+p13 <- ggplot(pca.scores, aes(x=PC1, y=PC3, colour=Population)) +
+  geom_point(size=2) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  theme_bw()
+p13
+
+p13_labels <- p13 + geom_text_repel(aes(label=ind))
+
+# PC2 & PC3
+
+p23 <- ggplot(pca.scores, aes(x=PC2, y=PC3, colour=Population)) +
+  geom_point(size=2) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  theme_bw()
+p23
+
+p23_labels <- p23 + geom_text_repel(aes(label=ind))
+
+p12_labels
+p13_labels
+p23_labels
+
+# Two strong outlier samples in the PCA, SK05_15 and RO04_DD111007
+# I suspect that they might belong to another species (e.g. marsh warbler), or another reed warbler subspecies. Misidentification between these can happen relatively easily in the field.
+# These two outliers will be excluded from further analyses.
+
+
+### Removing closely related individuals ###
+
+# As relatedness (Ajk) values are based on average relatedness between samples, the two outliers were removed before calculating the relatedness values for the rest of the samples to avoid bias.
+
+# Re-running populations without the two outlier individuals
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks/ --popmap ../../info/2021+2017_controls+Malta+SK15+RODD111007_rem_popmap \
+-O ./ \
+-p 15 -r 0.80 --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP85 \
+-t $SLURM_CPUS_PER_TASK --vcf
+
+# Calculating relatedness to exclude 1st, 2nd (and 3rd) degree relatives (Ajk value > 0.125)
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--relatedness \
+--out vcftools_relatedness_2outliers_rem_filters_minmac3
+
+# Removed 13 individuals based on relatedness: 1 duplicate pair (both individuals removed, likely mislabelling or contamination), 3 first degree relatives, 4 second degree relatives, 4 third degree relatives (only one indv. per pair or trio kept in the dataset)
+
+
+### Calculating LD decay to determine a physical linkage filtering threshold ###
+
+# First, checked the overall decay of LD in our species to determine parameters for LD filtering. For this, used all samples (excluding the two strong outliers, as well as related individuals using the sample lists of the PopLDdecay software).
+
+# STACKS populations
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/2021+2017_controls+Malta+SK15+RODD111007_rem_popmap \
+-O ./ \
+-p 15 -r 0.80 --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP85 \
+-t $SLURM_CPUS_PER_TASK --ordered-export --vcf
+
+# Sorting, zipping, and indexing the vcf
+module load samtools
+
+bcftools sort populations.snps.vcf > sorted_populations.snps.vcf
+bgzip –c sorted_populations.snps.vcf > sorted_populations.snps.vcf.gz
+tabix -p vcf sorted_populations.snps.vcf.gz
+
+# Using PopLDdecay package to calculate and plot LD decay in the data
+# First, checking the decay for a few populations and all samples grouped
+# Additional filter values set so that they will not remove any additional SNPs
+
+# All samples
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat ALL_LDdecay -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Finland
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat FI_LDdecay -SubPop FI_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Sweden
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat SE_LDdecay -SubPop SE_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Poland
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat PL_LDdecay -SubPop PL_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# France
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat FR_LDdecay -SubPop FR_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Italy
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat IT_LDdecay -SubPop IT_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Turkey
+./bin/PopLDdecay/bin/PopLDdecay -InVCF sorted_populations.snps.vcf.gz \
+-OutStat TR_LDdecay -SubPop TR_sample.list -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+perl ./bin/PopLDdecay/bin/Plot_MultiPop.pl -inList multi.list \
+-output multi_pop
+
+# Next, checking LD decay on a few separate chromosomes to make sure the levels are similar
+
+# Splitting the vcf to contain only a specific chromosome, e.g.:
+module load samtools
+
+bcftools filter sorted_populations.snps.vcf.gz -r SUPER_1 > SUPER_1_sorted_populations.snps.vcf
+
+# Chromosome 1 (SUPER_1)
+./bin/PopLDdecay/bin/PopLDdecay -InVCF SUPER_1_sorted_populations.snps.vcf \
+-OutStat SUPER_1_LDdecay -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Chromosome 2 (SUPER_2)
+./bin/PopLDdecay/bin/PopLDdecay -InVCF SUPER_2_sorted_populations.snps.vcf \
+-OutStat SUPER_2_LDdecay -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+# Chromosome 3 (SUPER_3)
+./bin/PopLDdecay/bin/PopLDdecay -InVCF SUPER_3_sorted_populations.snps.vcf \
+-OutStat SUPER_3_LDdecay -MaxDist 50 -MAF 0.005 -Miss 0.50
+
+ls ./SUPER*.stat.gz > chr.list
+
+perl ./bin/PopLDdecay/bin/Plot_MultiPop.pl -inList chr.list -output multi_chr
+
+# The LD decay pattern is similar between all the checked sampling sites & chromosomes, and decays rapidly (plateauing around 3kb)
+# Therefore, we will set a physical distance threshold of 3kb (3000 bp) for the final datasets for analyses assuming unlinked markers
+
+
+### Sample selection to keep max 10 individuals per sampling site ###
+
+# The data was downsampled to contain maximum 10 individuals from each sampling site to avoid bias from very uneven sampling in the analyses.
+
+# The selected individuals were mainly chosen based on sample quality (mean depth and missingness, calculated with VCFtools earlier in this script). All samples with any indications of possible mislabelling were excluded.
+
+# From the Finnish samples, individuals from a small area within the municipality Porvoo (three reed beds within a circle with a ~3.2 km radius) were chosen to represent an eastern site (FIE), and individuals from a small area spanning the municipalities Kustavi and Taivassalo (three reed beds within a circle with a ~4.5 km radius) were chosen to represent a western site (FIW). 
+
+# The Norwegian samples were chosen so that they were all sampled during one year.
+
+# Made a popmap for the final even dataset: “25_2021+2017_max10indv_popmap” (n=171)
+
+
+# To average the geographical coordinates of the samples in FIW and FIE, the coordinates were converted to 3D Cartesian (ECEF) coordinates, averaged, and then coverted back to latitude/longitude format to avoid error from simply taking the arithmetic mean of geographic coordinates:
+
+# Preparing the fuctions
+deg2rad <- function(deg) deg * pi / 180
+rad2deg <- function(rad) rad * 180 / pi
+
+average_geographic_coords <- function(coords) {
+  lat_rad <- deg2rad(coords[, 1])
+  lon_rad <- deg2rad(coords[, 2])
+  
+  x <- cos(lat_rad) * cos(lon_rad)
+  y <- cos(lat_rad) * sin(lon_rad)
+  z <- sin(lat_rad)
+  
+  x_avg <- mean(x)
+  y_avg <- mean(y)
+  z_avg <- mean(z)
+  
+  lon_avg <- atan2(y_avg, x_avg)
+  hyp <- sqrt(x_avg^2 + y_avg^2)
+  lat_avg <- atan2(z_avg, hyp)
+  
+  return(c(lat = rad2deg(lat_avg), lon = rad2deg(lon_avg)))
+}
+
+# Calculating the average using the functions
+# FIW (Finland, western)
+coords <- read.delim("FIW_coords.txt", sep = "\t", header = T)
+average_geographic_coords(coords) # 60.55693, 21.50412
+
+# FIE (Finland, eastern)
+coords <- read.delim("FIE_coords.txt", sep = "\t", header = T)
+average_geographic_coords(coords) # 60.33929, 25.67166
+
+
+### Setting filtering thresholds and filtering the even dataset ###
+
+# First ran STACKS populations without filters for the final set of samples to set the maximum depth filter limit (2x mean depth) and get the number of SNPs etc.
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-t $SLURM_CPUS_PER_TASK --vcf
+
+# 171 samples, 20 populations
+# Without filters, 452673 loci with 791589 SNPs
+
+# Calculating mean depth per site
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--site-mean-depth --out site-mean-depth
+
+# Mean depth is 46.53, so maximum mean depth threshold will be set to 93
+
+# Extracting the loci to be excluded based on low or high depth
+vcftools --vcf ./populations.snps.vcf \
+--min-meanDP 10 --max-meanDP 93 \
+--removed-sites \
+--out vcftools_min-meanDP10_max-meanDP93
+
+# Writing the loci in STACKS blacklist format
+grep -f ./vcftools_min-meanDP10_max-meanDP93.removed.sites ./populations.sumstats.tsv -F -w | cut -f1 | sort -n | uniq > blacklist_min-meanDP10_max-meanDP93
+
+# Making a blacklist of sex chromosomes
+cat populations.hapstats.tsv | grep -v '^#' | awk '$2 == "SUPER_Z" || $2 == "SUPER_W" || $2 == "SUPER_W_unloc_1" || $2 == "SUPER_W_unloc_2" || $2 == "SUPER_W_unloc_3" || $2 == "SUPER_W_unloc_4" || $2 == "SUPER_W_unloc_5" || $2 == "SUPER_W_unloc_6" || $2 == "SUPER_W_unloc_7" || $2 == "SUPER_W_unloc_8" || $2 == "SUPER_W_unloc_9" || $2 == "SUPER_W_unloc_10" {print $0}' | cut -f 1 | sort -n -u > blacklist_sex_chroms
+
+# Combining the depth and sex chrom blacklists into one
+sort -num blacklist_min-meanDP10_max-meanDP93 blacklist_sex_chroms > blacklist_sexrem_min-meanDP10_max-meanDP93
+
+# Running populations with the filters so far to determine final filtering for HWE 
+# We only want to use HWE filtering to exclude potential genotyping errors/paralogs, not actual sites out of HWE
+# Therefore, we only look for sites that are out of HWE (p<0.05) in all populations with n=10 (to increase statistical power)
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-p 15 -r 0.80 --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP93 \
+-t $SLURM_CPUS_PER_TASK --hwe –vcf
+
+# Finding SNPs that are out of HWE in all sampling sites with n=10
+cat populations.sumstats.tsv | grep -v '^#' \
+| awk '$20 > 0.05 && \ # Choose loci in HWE (p-value > 0.05)
+($5 == "DEDG" || $5 == "DK" || $5 == "EE" || $5 == "ES" || $5 == "FIE" || $5 == "IT" || $5 == "LT" || $5 == "NO" || $5 == "PL")' \ # Choose specific populations (with n=10)
+
+| cut -f 1,4 \ # Print the first and fourth column (Locus ID, Col)
+
+| awk '++a[$1,$2]==1{ print $1,$2 }' OFS='\t' \ # Output only SNPs which occur at least 1 time, OFS (output field separator) = tab
+
+| sort -n > wl_snps_in_hwe_in_all_pops_with_10indv # Sort in numerical order and redirect to file
+
+# At this point, there were no SNPs that would be significantly out of HWE in all populations (with n=10). Therefore, no SNPs were excluded from further analyses based on HWE.
+
+
+### Preparing Dataset 1: Full, linkage-pruned SNP dataset ###
+
+# All sampling sites included; SNPs pruned by physical distance
+# Used for: PCA, conStruct, Fst
+
+# STACKS populations
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-p 15 -r 0.80 --min-mac 3 --max-obs-het 0.70 --write-random-snp -B blacklist_sexrem_min-meanDP10_max-meanDP93 \
+-t $SLURM_CPUS_PER_TASK --hwe --ordered-export --vcf
+
+# Extracting a list of SNPs to keep after thinning by physical LD decay distance (3kb)
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--thin 3000 \
+--kept-sites \
+--out vcftools_thin3000
+
+# Turning the list into a whitelist for STACKS populations
+grep -f ./vcftools_thin3000.kept.sites ./populations.sumstats.tsv -F -w | cut -f 1,4 | sort -n | uniq > DS1_whitelist_thin3000_minmac3_random-snp
+
+# Re-running population with a whitelist only retaining the markers pruned by physical distance
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-W DS1_whitelist_thin3000_minmac3_random-snp \
+-t $SLURM_CPUS_PER_TASK --hwe --vcf --ordered-export --structure --plink
+
+
+### Preparing Dataset 2: Full, linkage-pruned RAD locus dataset ###
+
+# All sampling sites included; full RAD loci pruned by physical distance
+# Used for: fineRADstructure
+
+# STACKS populations
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-p 15 -r 0.80 -H --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP93 \
+-t $SLURM_CPUS_PER_TASK --hwe --vcf --ordered-export
+
+# Extracting a list of loci to keep after thinning by physical LD decay distance (3kb)
+module load vcftools
+
+vcftools --vcf ./populations.haps.vcf \
+--thin 3000 \
+--kept-sites \
+--out vcftools_thin3000
+
+# Turning the list into a whitelist for STACKS populations
+grep -f ./vcftools_thin3000.kept.sites ./populations.hapstats.tsv -F -w | cut -f 1 | sort -n | uniq > DS2_whitelist_thin3000_minmac3_H
+
+# Re-running population with a whitelist only retaining the markers pruned by physical distance
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017_max10indv_popmap \
+-O ./ \
+-W DS2_whitelist_thin3000_minmac3_H \
+--fstats --smooth --bootstrap-archive \
+-t $SLURM_CPUS_PER_TASK --vcf --ordered-export --radpainter --plink
+
+
+### Preparing Dataset 3: Batch-effect-free, linkage-pruned SNP dataset ###
+
+# Only sampling sites from 2021 batches; SNPs pruned by physical distance
+# Notice a different popmap with only 2021 samples, and a recalculated max-mean-depth threshold based on the ~2x mean depth of only these samples (43.80 * 2)
+# Used for: RangeExpansion
+
+# STACKS populations
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021_max10indv_popmap \
+-O ./ \
+-p 9 -r 0.80 --min-mac 3 --max-obs-het 0.70 --write-random-snp -B blacklist_sexrem_min-meanDP10_max-meanDP88 \
+-t $SLURM_CPUS_PER_TASK --ordered-export --vcf
+
+# Extracting a list of SNPs to keep after thinning by physical LD decay distance (3kb)
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--thin 3000 \
+--kept-sites \
+--out vcftools_thin3000
+
+# Turning the list into a whitelist for STACKS populations
+grep -f ./vcftools_thin3000.kept.sites ./populations.sumstats.tsv -F -w | cut -f 1,4 | sort -n | uniq > DS3_whitelist_thin3000_minmac3_random-snp
+
+# Re-running population with a whitelist only retaining the markers pruned by physical distance
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021_max10indv_popmap \
+-O ./ \
+-W DS3_whitelist_thin3000_minmac3_random-snp \
+-t $SLURM_CPUS_PER_TASK --ordered-export --vcf --structure --plink
+
+
+### Preparing Dataset 4: Batch-effect-free, full RAD locus dataset (not linkage-pruned) ###
+
+# Only sampling sites from 2021 batches; not linkage-pruned
+# Used for: π, (private) allelic richness
+
+# STACKS populations
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021_max10indv_popmap \
+-O ./ \
+-p 9 -r 0.80 -H --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP88 \
+-t $SLURM_CPUS_PER_TASK --ordered-export --vcf --structure --plink

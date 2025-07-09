@@ -34,12 +34,6 @@ vcftools --vcf ./populations.snps.vcf \
 # Code edited from https://speciationgenomics.github.io/filtering_vcfs/
 library(tidyverse)
 
-# VCFtools --relatedness
-relatedness <- read_delim("./vcftools_relatedness_no_filters.relatedness", delim = "\t", col_names=TRUE)
-
-# VCFtools --relatedness2
-relatedness2 <- read_delim("./vcftools_relatedness2_no_filters.relatedness2", delim = "\t", col_names=TRUE)
-
 # Allele frequencies
 var_freq <- read_delim("./no_filters_freq.frq", delim = "\t",
                        col_names = c("chr", "pos", "nalleles", "nchr", "a1", "a2"), skip = 1)
@@ -65,7 +59,7 @@ summary(var_depth$MEAN_DEPTH)
 d + theme_light() + xlim(0, 200)
 
 # VARIANT MISSINGNESS on a per-site basis
-var_miss <- read_delim("./max10indv_popgen_no_filters_missing-site.lmiss", delim = "\t")
+var_miss <- read_delim("./no_filters_missing-site.lmiss", delim = "\t")
 
 vm <- ggplot(var_miss, aes(F_MISS)) + geom_density(fill = "dodgerblue1", colour = "black", alpha = 0.3)
 vm + theme_light()
@@ -73,7 +67,7 @@ vm + theme_light()
 summary(var_miss$F_MISS)
 
 # MEAN DEPTH PER INDIVIDUAL
-ind_depth <- read_delim("./max10indv_popgen_no_filters_indv-depth.idepth", delim = "\t")
+ind_depth <- read_delim("./no_filters_indv-depth.idepth", delim = "\t")
 
 id <- ggplot(ind_depth, aes(MEAN_DEPTH)) + geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins = 60)
 id + theme_light()
@@ -82,7 +76,7 @@ summary(ind_depth)
 View(ind_depth)
 
 # PROPORTION OF MISSING DATA PER INDIVIDUAL
-ind_miss  <- read_delim("./max10indv_popgen_no_filters_missing-indv.imiss", delim = "\t")
+ind_miss  <- read_delim("./no_filters_missing-indv.imiss", delim = "\t")
 
 im <- ggplot(ind_miss, aes(F_MISS)) + geom_histogram(fill = "dodgerblue1", colour = "black", alpha = 0.3, bins=30)
 im + theme_light()

@@ -1,0 +1,418 @@
+# PCA (principal component analysis)
+
+# Using Dataset 1
+
+library(ade4)
+library(adegenet)
+library(ape)
+library(pegas)
+library(seqinr)
+library(ggplot2)
+library(vcfR)
+library(ggrepel)
+library(dplyr)
+library(viridisLite)
+library(viridis)
+
+# Reading vcf data
+vcf <- read.vcfR("DS1_populations.snps.vcf.gz", verbose = TRUE)
+
+# Show summary of object (samples, variants, size, missing data)
+vcf
+
+# Adding population info
+pop.data <- read.table("25_2021+2017_max10indv_popmap_colnames", sep = "\t", header = TRUE)
+
+# Converting vcf data into a genlight object & adding info
+x <- vcfR2genlight(vcf)
+ploidy(x) <- 2
+pop(x) <- pop.data$pop
+
+# Show summary of x
+x
+
+# Perform PCA
+pca <- glPca(x, nf=5)
+save(pca, file = "pca.RData")
+write.table(pca$scores, file = "pca_scores.tsv", sep = "\t")
+
+load("pca.RData")
+
+summary(pca)
+
+var_frac <- pca$eig/sum(pca$eig)
+pve <- var_frac*100
+
+print(pve[1])
+print(pve[2])
+print(pve[3])
+print(pve[4])
+
+# Barplot "PCA Eigenvalues"
+barplot(100*pca$eig/sum(pca$eig), col = heat.colors(200), main="PCA Eigenvalues")
+title(ylab="Percent of variance\nexplained", line = 2)
+title(xlab="Eigenvalues", line = 1)
+
+# Adding info
+
+pca.scores <- as.data.frame(pca$scores)
+pca.scores$Population <- pop(x)
+pca.scores$ind <- indNames(x)
+
+### Plotting ###
+
+# PC1 & PC2
+
+# Read population latitude file
+lat_data <- read.table("25_2021+2017_pop_latitudes.txt", header = TRUE)
+
+# Merge latitude info & PCA scores
+pca.scores <- pca.scores %>%
+  left_join(lat_data, by = c("Population" = "Pop"))
+
+# Assigning shapes to populations
+shape_mapping <- c(
+  "FIW" = 22, 
+  "FIE" = 21, 
+  "NO"   = 24, 
+  "EE"   = 22, 
+  "DK"   = 21, 
+  "SE"  = 24, 
+  "LT"  = 22, 
+  "PL"   = 16, 
+  "DEDG"   = 17, 
+  "CZOS" = 15, 
+  "DEMH" = 16, 
+  "CZLU"   = 17,
+  "SK" = 15,
+  "FR" = 16,
+  "ROTR"   = 17,
+  "RODD"   = 15,
+  "HR"   = 16,
+  "IT"   = 17,
+  "ES"   = 15,
+  "TR"   = 16
+)
+
+# Create colour palette based on latitude
+lat_ordered <- lat_data %>%
+  arrange(desc(Latitude))
+
+# Get population order and assign colours using the "turbo" colour scale
+pop_levels <- lat_ordered$Pop
+pop_colors <- setNames(viridisLite::viridis(length(pop_levels), option = "turbo"), pop_levels)
+
+# Reorder factor levels in PCA scores
+pca.scores$Population <- factor(pca.scores$Population, levels = pop_levels)
+
+# Flipping both axes to match the orientation of the sampling map for viewing clarity (e.g., a full 180° rotation). 
+# This is a visual adjustment that does not distort the actual results, i.e. the relationships between the samples.
+
+pca.scores[,1] <- -pca.scores[,1]  # Flip PC1 by multiplying by -1
+pca.scores[,2] <- -pca.scores[,2]  # Flip PC2 by multiplying by -1
+pca.scores[,3] <- -pca.scores[,3]  # Flip PC3 by multiplying by -1
+
+# Determine which shapes are fillable
+fillable_shapes <- c(21, 22, 24)
+solid_shapes <- setdiff(unique(shape_mapping), fillable_shapes)
+
+# Add shape to the dataframe
+pca.scores$Shape <- shape_mapping[as.character(pca.scores$Population)]
+
+# Split data
+fillable_points <- subset(pca.scores, Shape %in% fillable_shapes)
+solid_points    <- subset(pca.scores, Shape %in% solid_shapes)
+
+legend_df <- data.frame(
+  Population = factor(pop_levels, levels = pop_levels),
+  Shape = shape_mapping[pop_levels],
+  Color = pop_colors[pop_levels]
+)
+
+# Flag for fillable shapes
+legend_df$Fillable <- legend_df$Shape %in% c(21, 22, 24)
+
+# Plot PC1 & PC2 without a legend first
+p12 <- ggplot() +
+  # Fillable shapes
+  geom_point(
+    data = fillable_points,
+    aes(x = PC2, y = PC1, shape = Population),
+    color = "black", size = 4.2, stroke = 0.6
+  ) +
+  geom_point(
+    data = fillable_points,
+    aes(x = PC2, y = PC1, shape = Population, fill = Population),
+    color = "black", size = 3, stroke = 0.1
+  ) +
+  # Solid shapes
+  geom_point(
+    data = solid_points,
+    aes(x = PC2, y = PC1, shape = Population, color = Population),
+    size = 3.5
+  ) +
+  scale_shape_manual(values = shape_mapping) +
+  scale_fill_manual(values = pop_colors) +
+  scale_color_manual(values = pop_colors) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(
+    x = paste("PC2 (", round(pve[2], 2), "%)"),
+    y = paste("PC1 (", round(pve[1], 2), "%)"),
+    shape = "Population",
+    fill = "Population",
+    color = "Population"
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+p12
+
+# Making a custom legend
+
+# Adding full country names instead of site codes
+custom_labels <- c(
+  "FIW" = "Finland (W)",
+  "FIE" = "Finland (E)",
+  "NO"  = "Norway",
+  "EE"  = "Estonia",
+  "DK"  = "Denmark",
+  "SE"  = "Sweden",
+  "LT"  = "Lithuania",
+  "PL"  = "Poland",
+  "DEDG" = "Germany (DG)",
+  "CZOS" = "Czechia (OS)",
+  "DEMH" = "Germany (MH)",
+  "CZLU" = "Czechia (LU)",
+  "SK" = "Slovakia",
+  "FR" = "France",
+  "ROTR" = "Romania (TR)",
+  "RODD" = "Romania (DD)",
+  "HR" = "Croatia",
+  "IT" = "Italy",
+  "ES" = "Spain",
+  "TR" = "Turkey"
+)
+
+# Legend dataframe (ordered north to south)
+legend_df <- data.frame(
+  Population = factor(pop_levels, levels = pop_levels),
+  Shape = shape_mapping[pop_levels],
+  Color = pop_colors[pop_levels]
+)
+
+legend_df$Fillable <- legend_df$Shape %in% c(21, 22, 24)
+
+# y positions, north to south (top to bottom)
+legend_df$y <- rev(seq_along(legend_df$Population))
+# Increase spacing
+legend_df$y <- legend_df$y * 1.5
+
+# Add full site names
+legend_df$Label <- custom_labels[as.character(legend_df$Population)]
+
+# Fixed x positions:
+# shapes on the left (x = 1),
+# labels on the right (x = 2)
+legend_df$x_shape <- 1
+legend_df$x_label <- 1.5
+
+# Plot custom legend with shapes on left and labels on right
+custom_legend <- ggplot() +
+  # Shapes
+  geom_point(
+    data = legend_df[legend_df$Fillable, ],
+    aes(x = x_shape, y = y, shape = Population),
+    color = "black", size = 4.2, stroke = 0.6
+  ) +
+  # Inner fill layer (smaller point, no border)
+  geom_point(
+    data = legend_df[legend_df$Fillable, ],
+    aes(x = x_shape, y = y, shape = Population, fill = Population),
+    color = "black", size = 3, stroke = 0.1
+  ) +
+  geom_point(
+    data = legend_df[!legend_df$Fillable, ],
+    aes(x = x_shape, y = y, shape = Population, color = Population),
+    size = 3.5
+  ) +
+  # Labels
+  geom_text(
+    data = legend_df,
+    aes(x = x_label, y = y, label = Label),
+    hjust = 0,
+    size = 5
+  ) +
+  scale_shape_manual(values = shape_mapping) +
+  scale_fill_manual(values = pop_colors) +
+  scale_color_manual(values = pop_colors) +
+  scale_y_continuous(breaks = legend_df$y, limits = c(0.8, max(legend_df$y) + 0.5)) +
+  scale_x_continuous(limits = c(0.5, 3.7), expand = expansion(mult = c(0, 0.5))) +
+  coord_fixed(ratio = 0.5) +  # control aspect ratio for better spacing
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(t = 5, r = 60, b = 5, l = 5)
+  )
+
+custom_legend
+
+# Plotting the PCA and legend together
+library(patchwork)
+
+combined_plot <- p12 + custom_legend + plot_layout(widths = c(4, 1))
+combined_plot
+
+# PC1 & PC3
+
+# Plot PC1 & PC2 without a legend first
+p13 <- ggplot() +
+  # Fillable shapes
+  geom_point(
+    data = fillable_points,
+    aes(x = PC3, y = PC1, shape = Population),
+    color = "black", size = 4.2, stroke = 0.6
+  ) +
+  geom_point(
+    data = fillable_points,
+    aes(x = PC3, y = PC1, shape = Population, fill = Population),
+    color = "black", size = 3, stroke = 0.1
+  ) +
+  # Solid shapes
+  geom_point(
+    data = solid_points,
+    aes(x = PC3, y = PC1, shape = Population, color = Population),
+    size = 3.5
+  ) +
+  scale_shape_manual(values = shape_mapping) +
+  scale_fill_manual(values = pop_colors) +
+  scale_color_manual(values = pop_colors) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(
+    x = paste("PC3 (", round(pve[3], 2), "%)"),
+    y = paste("PC1 (", round(pve[1], 2), "%)"),
+    shape = "Population",
+    fill = "Population",
+    color = "Population"
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+p13
+
+# Adding legend
+combined_plot <- p13 + custom_legend + plot_layout(widths = c(4, 1))
+combined_plot
+
+# PC2 & PC3
+
+p23 <- ggplot() +
+  # Fillable shapes
+  geom_point(
+    data = fillable_points,
+    aes(x = PC2, y = PC3, shape = Population),
+    color = "black", size = 4.2, stroke = 0.6
+  ) +
+  geom_point(
+    data = fillable_points,
+    aes(x = PC2, y = PC3, shape = Population, fill = Population),
+    color = "black", size = 3, stroke = 0.1
+  ) +
+  # Solid shapes
+  geom_point(
+    data = solid_points,
+    aes(x = PC2, y = PC3, shape = Population, color = Population),
+    size = 3.5
+  ) +
+  scale_shape_manual(values = shape_mapping) +
+  scale_fill_manual(values = pop_colors) +
+  scale_color_manual(values = pop_colors) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(
+    x = paste("PC2 (", round(pve[2], 2), "%)"),
+    y = paste("PC3 (", round(pve[3], 2), "%)"),
+    shape = "Population",
+    fill = "Population",
+    color = "Population"
+  ) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+p23
+
+# Adding legend
+combined_plot <- p23 + custom_legend + plot_layout(widths = c(4, 1))
+combined_plot
+
+
+### Correlating PCA scores with geography ###
+
+# Reading in the PCA scores and formatting the data frame
+pca_scores <- read.delim("pca_scores.tsv", header=TRUE, sep = "\t")
+pca_scores$Sample_id <- rownames(pca_scores)
+pca_scores <- pca_scores[, c("Sample_id", setdiff(names(pca_scores), "Sample_id"))]
+rownames(pca_scores) <- NULL
+
+# Reading in the sample and sampling site names
+indv_popmap <- read.delim("25_2021+2017_max10indv_popmap_colnames")
+names(indv_popmap)[names(indv_popmap) == "ind.names"] <- "Sample_id"
+names(indv_popmap)[names(indv_popmap) == "pop"] <- "Site_code"
+
+# Reading in coordinates
+sampling_site_coords <- read.delim("sampling_site_coords.txt")
+
+# Merging files
+pcadat <- merge(pca_scores, indv_popmap, by="Sample_id") 
+pcadat <- merge(pcadat, sampling_site_coords, by = "Site_code") 
+
+# NOTICE! Flipping the PC1 and PC2 scores (as in the PCA plots) by multiplying each axis by -1
+# This way, the correlation tests match the visual PCA output. The sign of the correlation changes, while the strength of the correlation is unaffected.
+
+pcadat$PC1 <- -(pcadat$PC1)
+pcadat$PC2 <- -(pcadat$PC2)
+
+# Investigating if the PCA scores are correlated with geographic variation
+
+library(DHARMa)
+library(glmmTMB)
+library(ggplot2)
+
+# Flipped PC1
+ggplot(pcadat, aes(x = Latitude, y = PC1)) +
+    geom_smooth(method = "lm", formula = y ~ x) +
+    geom_point(size = 2, shape = 16, colour = "black") +
+    labs(title = "PC1 vs latitude")
+
+# Flipped PC2
+ggplot(pcadat, aes(x = Longitude, y = PC2)) +
+  geom_smooth(method = "lm", formula = y ~ x) +
+  geom_point(size = 2, shape = 16, colour = "black") +
+  labs(title = "PC2 vs longitude")
+
+# Now we can use random effects models to account for repeated samples from sites:
+# Flipped PC1 vs latitude
+PC1mod = glmmTMB(PC1 ~ Latitude + (1|Site_code), data = pcadat)
+simulateResiduals(PC1mod, plot = T)
+summary(PC1mod)
+
+# Flipped PC2 vs longitude
+PC2mod = glmmTMB(PC2 ~ Longitude + (1|Site_code), data = pcadat)
+simulateResiduals(PC2mod, plot = T)
+summary(PC2mod)
+
+# Pearson correlation tests for the flipped PCs:
+# Flipped PC1 vs latitude
+PC1cor = with(pcadat, cor.test(Latitude, PC1, method = "pearson"))
+PC1cor
+r <- PC1cor$estimate
+r_squared <- r^2
+r_squared
+
+# Flipped PC2 vs longitude
+PC2cor = with(pcadat, cor.test(Longitude, PC2, method = "pearson"))
+PC2cor
+r <- PC2cor$estimate
+r_squared <- r^2
+r_squared

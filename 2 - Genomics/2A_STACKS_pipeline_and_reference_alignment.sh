@@ -71,3 +71,12 @@ module load BWA
 
 bwa mem -M ../genome/bAcrSci1_1.20210512.curated_primary.fasta \
 ../cleaned/all_samples_combined/${name}.fq.gz | samtools sort -o ../alignments/samples/${name}.bam
+
+### STACKS ref_map.pl ###
+
+# Running the wrapper with a popmap of all samples, with no filters at this point
+module load stacks
+
+ref_map.pl -T $SLURM_CPUS_PER_TASK --samples ../alignments/samples/ \
+--popmap ../info/2021+2017_ALL_popmap \
+-o ./ALLstacks_v262/ -X "populations: --vcf"

@@ -1,0 +1,392 @@
+# Batch effect checks
+
+### STACKS populations ###
+
+# Running STACKS populations for control samples, without applying filters
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/controls_all_popmap \
+-O ./ \
+-t $SLURM_CPUS_PER_TASK --hwe --vcf
+
+### Control sample relatedness ###
+
+# Checking that the relatedness value of each control sample pair corresponds to the same individual
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--relatedness \
+--out controls_vcftools.relatedness
+
+vcftools --vcf ./populations.snps.vcf \
+--relatedness2 \
+--out controls_vcftools.relatedness2
+
+# All other control sample pairs' relatedness value corresponded to the same individual, but control sample FI18_HA70268_c corresponded to sample FI18_HA70267 instead of FI18_HA70268, suggesting mislabelling. Both of these samples (and their controls) were removed from further analyses.
+
+### STACKS populations excluding mislabelled control sample ###
+
+# Running populations again with a new popmap, excluding the mislabelled control
+module load stacks
+
+populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/controls_mislabeled_removed \
+-O ./ \
+-t $SLURM_CPUS_PER_TASK --hwe --vcf
+
+# Zipping the vcf
+module load samtools
+bgzip -c populations.snps.vcf > populations.snps.vcf.gz
+
+### Control sample PCA (R script)
+
+# Checking that control samples cluster by sample identity and not by batch in a PCA
+
+library(ade4)
+library(adegenet)
+library(ape)
+library(pegas)
+library(seqinr)
+library(ggplot2)
+library(vcfR)
+library(ggrepel)
+library(dplyr)
+library(RColorBrewer)
+library(stringr)
+
+# Reading vcf data
+vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
+
+# Show summary of object (samples, variants, size, missing data)
+vcf
+
+# Adding population info
+pop.data <- read.table("controls_mislabeled_removed_popmap", sep = "\t", header = TRUE)
+
+# Converting vcf data into a genlight object & adding info
+x <- vcfR2genlight(vcf)
+ploidy(x) <- 2
+pop(x) <- pop.data$pop
+
+# Show summary of x
+x
+
+# Perform PCA
+pca <- glPca(x, nf=5)
+save(pca, file = "pca.RData")
+
+#load("pca.RData")
+
+summary(pca)
+
+var_frac <- pca$eig/sum(pca$eig)
+pve <- var_frac*100
+
+print(pve[1])
+print(pve[2])
+print(pve[3])
+
+# Barplot "PCA Eigenvalues"
+barplot(100*pca$eig/sum(pca$eig), col = heat.colors(200), main="PCA Eigenvalues")
+title(ylab="Percent of variance\nexplained", line = 2)
+title(xlab="Eigenvalues", line = 1)
+
+# Drawing plot using ggplot2
+
+pca.scores <- as.data.frame(pca$scores)
+pca.scores$Batch <- pop(x)
+pca.scores$ind <- indNames(x)
+
+# PC1 & PC2
+# Specify shapes for each batch
+shape_mapping <- c(
+  "2021_plate1" = 1, 
+  "2021_plate2" = 3, 
+  "2017" = 6) 
+
+# Extracting individual names to create custom colours based on individual 
+individuals <- unique(pca.scores$ind)
+# Extracting the base names (leaving out the _c endings)
+base_names <- str_remove(individuals, "_c$")
+# Assigning each individual its base name
+ind_mapping <- data.frame(individual = individuals, base_name = base_names)
+# Getting 11 discrete colours
+colour_palette <- brewer.pal(11, "Paired")
+# Getting the unique base names (i.e. individuals)
+unique_base_names <- unique(base_names)
+# Assigning colours
+assigned_colours <- setNames(rep(colour_palette, length.out = length(unique_base_names)), unique_base_names)
+ind_mapping$colour <- assigned_colours[ind_mapping$base_name]
+# Yellow is hard to see -> change to black
+ind_mapping$colour[ind_mapping$base_name == 'NO02_101003'] <- "#000000"
+# Merging the colour assignments with the PCA dataframe
+pca.scores <- left_join(pca.scores, ind_mapping, by = c("ind" = "individual"))
+
+# Plot PCA with assigned colours
+p12 <- ggplot(pca.scores, aes(x = PC2, y = PC1, shape = Batch, colour = colour)) +
+  geom_point(size = 3, stroke = 1) +
+  scale_shape_manual(values = shape_mapping) +
+  scale_colour_identity() + 
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  labs(
+    x = paste("PC2 (", round(pve[2], 2), "%)", sep = ""),
+    y = paste("PC1 (", round(pve[1], 2), "%)", sep = "")
+  ) +
+  theme_bw()
+
+p12
+
+### VCFtools individual statistics for controls ###
+
+# Outputting statistics for between-batch comparisons
+module load vcftools
+
+vcftools --vcf ./populations.snps.vcf \
+--depth \
+--out vcftools_batchstats
+
+vcftools --vcf ./populations.snps.vcf \
+--het \
+--out vcftools_batchstats
+
+vcftools --vcf ./populations.snps.vcf \
+--missing-indv \
+--out vcftools_batchstats
+
+### Plotting and testing batch differences (R script) ###
+
+# Testing for batch effects in the per-individual statistics from the previous step
+
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+
+batches <- read.delim("controls_all_popmap")
+
+depth <- read.delim("vcftools_batchstats.idepth")
+missing <- read.delim("vcftools_batchstats.imiss")
+het <- read.delim("vcftools_batchstats.het")
+
+batch_data <- merge(batches, depth, by = "INDV")
+batch_data <- merge(batch_data, missing, by = "INDV")
+batch_data <- merge(batch_data, het, by = "INDV")
+
+# Renaming columns
+names(batch_data)[names(batch_data) == "O.HOM."] <- "O_HOM"
+names(batch_data)[names(batch_data) == "E.HOM."] <- "E_HOM"
+
+# Calculating heterozygosities in percentages instead of #sites
+batch_data$P_O_HET <- 1-(batch_data$O_HOM / batch_data$N_SITES.x)
+batch_data$P_E_HET <- 1-(batch_data$E_HOM / batch_data$N_SITES.x)
+
+
+### 2021_plate1 vs. 2021_plate_2 ###
+
+# Subsetting data for batch pair comparisons
+batches_2021  <- subset(batch_data, 
+                        INDV %in% c("FI18_HA70208","FI18_HA70208_c", 
+                                    "FI18_HA70220", "FI18_HA70220_c",
+                                    "FI18_HA70224", "FI18_HA70224_c", 
+                                    "PL06_117001", "PL06_117001_c"))
+
+# Subsetting the data by each batch for t-tests
+batch_comparison_2021_plate1 <- batches_2021[batches_2021$BATCH == "2021_plate1", ]
+batch_comparison_2021_plate2 <- batches_2021[batches_2021$BATCH == "2021_plate2", ]
+
+# Order by INDV to ensure pairs match across batches
+batch_comparison_2021_plate1 <- batch_comparison_2021_plate1[order(batch_comparison_2021_plate1$INDV), ]
+batch_comparison_2021_plate2 <- batch_comparison_2021_plate2[order(batch_comparison_2021_plate2$INDV), ]
+
+# Depth
+ggplot(batches_2021, aes(x = BATCH, y = MEAN_DEPTH)) +
+  geom_boxplot(fill = "lightblue", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text(aes(label = INDV), hjust = -0.2, vjust = 0.5, size = 2.5) +
+  labs(title = "Mean depth per individual", x = "Batch ID", y = "Mean sequencing depth") +
+  theme_minimal()
+
+
+ggplot(batches_2021, aes(x = BATCH, y = MEAN_DEPTH)) +
+  geom_boxplot(fill = "lightblue", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Mean depth per individual", x = "Batch ID", y = "Mean sequencing depth") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_comparison_2021_plate1$MEAN_DEPTH, batch_comparison_2021_plate2$MEAN_DEPTH, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Missingness
+ggplot(batches_2021, aes(x = BATCH, y = F_MISS)) +
+  geom_boxplot(fill = "lightyellow", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Missingness per individual", x = "Batch ID", y = "Mean missingness") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_comparison_2021_plate1$F_MISS, batch_comparison_2021_plate2$F_MISS, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Mean heterozygosity
+ggplot(batches_2021, aes(x = BATCH, y = P_O_HET)) +
+  geom_boxplot(fill = "violet", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Observed heterozygosity per individual", x = "Batch ID", y = "Observed heterozygosity") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_comparison_2021_plate1$P_O_HET, batch_comparison_2021_plate2$P_O_HET, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Expected heterozygosity
+ggplot(batches_2021, aes(x = BATCH, y = P_E_HET)) +
+  geom_boxplot(fill = "lightgreen", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Expected heterozygosity per individual", x = "Batch ID", y = "Expected heterozygosity") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_comparison_2021_plate1$P_E_HET, batch_comparison_2021_plate2$P_E_HET, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+### 2021 both batches combined vs. 2017 ###
+
+# Since there were no significant differences in any of the tested values between 
+# 2021_plate1 & 2021_plate2, we will combine them into just a 2021 batch (as otherwise there are only
+# two samples in the 2017 vs. 2021_plate2 comparison).
+
+batches_2021_2017 <- subset(batch_data, 
+                            INDV %in% c("CZ04_21","CZ04_21_c",
+                                        "DE03_MH103001", "DE03_MH103001_c", 
+                                        "DE03_MH103002", "DE03_MH103002_c",
+                                        "FR04_109006", "FR04_109006_c",
+                                        "IT17_6","IT17_6_c", 
+                                        "NO02_101003", "NO02_101003_c",
+                                        "TR05_13", "TR05_13_c"))
+
+# Replace "2021_plate1" and "2021_plate2" with "2021"
+batches_2021_2017$BATCH <- gsub("2021_plate[12]", "2021", batches_2021_2017$BATCH)
+
+# Subsetting the data by each batch for t-tests
+batch_2021 <- batches_2021_2017[batches_2021_2017$BATCH == "2021", ]
+batch_2017 <- batches_2021_2017[batches_2021_2017$BATCH == "2017", ]
+
+# Order by INDV to ensure pairs match across batches
+batch_2021 <- batch_2021[order(batch_2021$INDV), ]
+batch_2017 <- batch_2017[order(batch_2017$INDV), ]
+
+# Depth
+ggplot(batches_2021_2017, aes(x = BATCH, y = MEAN_DEPTH)) +
+  geom_boxplot(fill = "lightblue", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Mean depth per individual", x = "Batch ID", y = "Mean sequencing depth") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_2021$MEAN_DEPTH, batch_2017$MEAN_DEPTH, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Missingness
+ggplot(batches_2021_2017, aes(x = BATCH, y = F_MISS)) +
+  geom_boxplot(fill = "lightyellow", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Missingness per individual", x = "Batch ID", y = "Mean missingness") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_2021$F_MISS, batch_2017$F_MISS, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Mean heterozygosity
+ggplot(batches_2021_2017, aes(x = BATCH, y = P_O_HET)) +
+  geom_boxplot(fill = "violet", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Observed heterozygosity per individual", x = "Batch ID", y = "Observed heterozygosity") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_2021$P_O_HET, batch_2017$P_O_HET, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)
+
+# Expected heterozygosity
+ggplot(batches_2021_2017, aes(x = BATCH, y = P_E_HET)) +
+  geom_boxplot(fill = "lightgreen", color = "black", outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 3, color = "black") +
+  geom_text_repel(aes(label = INDV),
+                  size = 2.5, 
+                  max.overlaps = Inf, 
+                  box.padding = 0.3,
+                  point.padding = 0.25,
+                  force = 3,
+                  segment.size = 0.2, 
+                  segment.color = "gray50") +
+  labs(title = "Expected heterozygosity per individual", x = "Batch ID", y = "Expected heterozygosity") +
+  theme_minimal()
+
+# Paired, two-tailed t-test
+t_test_result <- t.test(batch_2021$P_E_HET, batch_2017$P_E_HET, 
+                        paired = TRUE, alternative = "two.sided")
+print(t_test_result)

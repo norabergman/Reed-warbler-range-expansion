@@ -329,7 +329,7 @@ adze-1.0 \
 library(ggplot2)
 library(ggrepel)
 
-batch_popstats <- read.table("../DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
 colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
 p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")

@@ -8,7 +8,7 @@
 module load gcc
 module load fineradstructure
 
-RADpainter paint populations.haps.radpainter
+RADpainter paint DS2_populations.haps.radpainter
 
 finestructure -x 100000 -y 100000 -z 1000 populations.haps_chunks.out populations.haps_chunks.mcmc.xml
 

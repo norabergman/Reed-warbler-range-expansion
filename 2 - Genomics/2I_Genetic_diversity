@@ -1,0 +1,355 @@
+### Calculating nucleotide diversity (pi) & allelic richness (AR) (as well as private allelic richness PAR for the whole dataset, before focusing on the area of interest for this study)
+
+# Using Dataset 4
+
+# Calculating nucleotide diversity (pi)
+# Values of nucleotide diversity were calculated by STACKS populations when producing the VCF and other output files for Dataset 4. They are found in file "populations.sumstats_summary.tsv" along with other summary statistics.
+
+# Calculating allelic richness (AR)
+# Using the functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+
+# Processing the input data
+# ADZE takes the input data in STRUCTURE format, we use the populations.structure file
+# First removing the header line created by Stacks:
+tail -n +2 populations.structure > tmpfile && mv tmpfile populations.structure
+
+# For the parameter file, we need to know the number of data lines and loci in the input file
+# Data lines: the following minus 1 (the first row contains the locus names and therefore is not a data line)
+wc -l populations.structure # 205, minus 1 = 204
+
+# Number of loci: the following minus 2 (there are two columns before the locus columns containing the sample ID and the pop ID)
+head -1 populations.structure | awk -F'\t' '{print NF}' # 246718, minus 2 = 246716
+
+# ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_all_paramfile.txt
+
+### Plotting nucleotide diversity (pi) & allelic richness (AR) (as well as private allelic richness PAR for the whole dataset)
+
+# Using Dataset 4
+
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+
+# Reading in a file with population ID, coordinates, and selected variables from the STACKS populations.sumstats_summary.tsv file (for Dataset 4), including nucleotide diversity (pi). As there are multiple columns with the same names (e.g. "Var" and "StdErr" for each statistic), the file was edited in Excel and is provided as an input file.
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+allelic_r <- read.table("allelic_richness", header = FALSE)
+colnames(allelic_r) <- c("Pop_ID", "G", "Total_loci", "Allelic_r", "Var", "Stderr")
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+a_batch_popstats <- merge(batch_popstats, allelic_r, by = "Pop_ID")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10 (i.e. five diploid individuals)
+a_data <- subset(a_batch_popstats, G == "10")
+p_data <- subset(p_batch_popstats, G == "10")
+
+# First plotting allelic richness with different sample sizes (G)
+ggplot(allelic_r, aes(x = G, y = Allelic_r, color = Pop_ID)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = Pop_ID), linewidth = 0.5) +
+  labs(x = "Sample size (G)", y = "Mean number of alleles per locus", color = "Group") +
+  theme_minimal()
+
+# Plotting pi and allelic richness in one plot
+# Scale factors for secondary Y-axis
+scale_factor <- max(a_data$Allelic_r) / 0.007  # Adjust to match the extended range of π
+# Choose allelic richness breaks to display
+ar_scale_breaks <- seq(1.0, 1.6, by = 0.2)
+
+ggplot(a_data, aes(x = Latitude)) +
+  # First plot: Pi
+  geom_point(aes(y = Pi), size = 4, shape = 23, color = "black", fill = "#e6ab02") +
+  # geom_text_repel(aes(y = Pi, label = Pop_ID),
+  #  nudge_y = -0.0002,  # Increased downward adjustment for labels
+  #  box.padding = unit(0.4, "lines"),
+  #  point.padding = unit(0.2, "lines"),
+  #  size = 3.5, vjust = 1) +  # `vjust = 1` ensures text is below
+  # Second plot: Allelic richness
+  geom_point(aes(y = Allelic_r / scale_factor), 
+             size = 4, shape = 25, color = "black", fill = "#7570b3") +
+  # geom_text_repel(aes(y = Allelic_r / scale_factor, label = Pop_ID),
+  # nudge_y = -0.03 / scale_factor,  # Increased downward adjustment for labels
+  # box.padding = unit(0.32, "lines"),
+  # point.padding = unit(0.1, "lines"),
+  #  size = 3.5, vjust = 1) +  # `vjust = 1` ensures text is below
+  labs(x = "Latitude", 
+       y = "π (orange)") +
+  # Add secondary axis
+  scale_y_continuous(
+    limits = c(0.005, 0.0075),  # Set left axis range
+    sec.axis = sec_axis(~ . * scale_factor, 
+                        name = "Allelic richness (purple)",
+                        breaks = ar_scale_breaks)
+  ) +
+  theme_light()
+
+# Simple linear models to test for correlation between diversity and latitude
+lm1 <- lm(Pi ~ Latitude, data = a_data)
+summary(lm1) #NS
+
+lm2 <- lm(Allelic_r ~ Latitude, data = a_data)
+summary(lm2) #NS
+
+# T-tests between range core and the recently colonised edge sites
+# Define CORE and EDGE populations
+core_populations <- c("PL", "DEDG", "DEMH", "ROTR", "RODD", "ES")
+edge_populations <- c("LT", "DK", "SE","EE", "FIE", "FIW")
+
+# Add the new column
+a_data <- a_data %>%
+  mutate(Group = case_when(
+    Pop_ID %in% core_populations ~ "CORE",
+    Pop_ID %in% edge_populations ~ "EDGE"
+  ))
+
+# Run the t-tests
+t_test_pi <- t.test(Pi ~ Group, data = a_data, )
+print(t_test_pi)
+
+t_test_allelicr <- t.test(Allelic_r ~ Group, data = a_data, )
+print(t_test_allelicr)
+
+# Private allelic richness across all sampling sites
+# First plotting private allelic richness with different sample sizes (G)
+ggplot(p_allelic_r, aes(x = G, y = P_allelic_r, color = Pop_ID)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = Pop_ID), linewidth = 0.5) +
+  labs(x = "Sample size (G)", y = "Mean number of private alleles per locus", color = "Group") +
+  scale_x_continuous(limits = c(2, 12), breaks = 2:12) +
+  theme_minimal()
+
+# Plotting private allelic richness for all sampling sites with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  nudge_y = -0.02 / scale_factor,
+                  box.padding = unit(0.2, "lines"),
+                  point.padding = unit(0.2, "lines"),
+                  size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+
+### Calculating private allelic richness (PAR) for the recently colonised range
+
+# Functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+# Using Dataset 4, but excluding the two sampling sites that are not in the recently colonised range of the reed warbler, i.e. Spain (ES) and Romania (RODD & ROTR) by filtering the input file ("populations.structure")
+# Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
+
+awk 'NR==1 || $2 ~ /^(FIE|FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > recent_range_filt.populations.structure
+
+# Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_expansion_paramfile.txt
+
+### Plotting private allelic richness (PAR) for the recently colonised range
+
+library(ggplot2)
+library(ggrepel)
+
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10
+p_data <- subset(p_batch_popstats, G == "10")
+
+# First plotting private allelic richness with different sample sizes (G)
+ggplot(p_allelic_r, aes(x = G, y = P_allelic_r, color = Pop_ID)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = Pop_ID), linewidth = 0.5) +
+  labs(x = "Sample size (G)", y = "Mean number of private alleles per locus", color = "Group") +
+  scale_x_continuous(limits = c(2, 12), breaks = 2:12) +
+  theme_minimal()
+
+# Plotting private allelic richness with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_smooth(aes(y = P_allelic_r), method = "lm", formula = y ~ x, 
+              color = "black", linewidth = 0.5,
+              fill = "grey", alpha = 0.3) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  #geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  #box.padding = unit(0.2, "lines"),
+                  #point.padding = unit(0.2, "lines"),
+                  #size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+# Simple linear model to test for correlation between private allelic richness and latitude
+lm3 <- lm(P_allelic_r ~ Latitude, data = p_data)
+summary(lm3) # p = 3.73e-05 ***
+
+
+### Testing whether pattern in PAR persists when excluding sites in geographical proximity with other sites (FIE)
+
+# Functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+# Using Dataset 4, but only keeping sampling sites DEMH, DEDG, PL, LT, SE, DK, EE, and FIW by filtering the input file ("populations.structure")
+# Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
+
+awk 'NR==1 || $2 ~ /^(FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > thinned_8pops_filt.populations.structure
+
+# Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_expansion_thinned1_paramfile.txt
+
+### Plotting private allelic richness (PAR) in the recently colonised range, excluding sites in geographical proximity with other sites (FIE)
+
+library(ggplot2)
+library(ggrepel)
+
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10
+p_data <- subset(p_batch_popstats, G == "10")
+
+# Plotting private allelic richness with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_smooth(aes(y = P_allelic_r), method = "lm", formula = y ~ x, 
+              color = "black", linewidth = 0.5,
+              fill = "grey", alpha = 0.3) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  box.padding = unit(0.5, "lines"),
+                  point.padding = unit(0.5, "lines"),
+                  size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+# Simple linear model to test for correlation between private allelic richness and latitude
+lm4 <- lm(P_allelic_r ~ Latitude, data = p_data)
+summary(lm4) # p = 0.000421 ***
+
+
+### Testing whether pattern in PAR persists when excluding sites in geographical proximity with other sites (FIE & DK)
+
+# Functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+# Using Dataset 4, but only keeping sampling sites DEMH, DEDG, PL, LT, SE, EE, and FIW by filtering the input file ("populations.structure")
+# Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
+
+awk 'NR==1 || $2 ~ /^(FIW|EE|SE|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > thinned_7pops_filt.populations.structure
+
+# Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_expansion_thinned2_paramfile.txt
+
+### Plotting private allelic richness (PAR) in the recently colonised range, excluding sites in geographical proximity with other sites (FIE & DK)
+
+library(ggplot2)
+library(ggrepel)
+
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10
+p_data <- subset(p_batch_popstats, G == "10")
+
+# Plotting private allelic richness with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_smooth(aes(y = P_allelic_r), method = "lm", formula = y ~ x, 
+              color = "black", linewidth = 0.5,
+              fill = "grey", alpha = 0.3) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  box.padding = unit(0.5, "lines"),
+                  point.padding = unit(0.5, "lines"),
+                  size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+# Simple linear model to test for correlation between private allelic richness and latitude
+lm5 <- lm(P_allelic_r ~ Latitude, data = p_data)
+summary(lm5) # p = 0.00225 **
+
+
+### Testing whether pattern in PAR persists when only looking at sites on the western coast of the Baltic Sea
+
+# Functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+# Using Dataset 4, but only keeping sampling sites DEMH, DEDG, DK, SE, and FIW by filtering the input file ("populations.structure")
+# Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
+
+awk 'NR==1 || $2 ~ /^(FIW|SE|DK|DEMH|DEDG)$/ {print}' populations.structure > westcoast_filt.populations.structure
+
+# Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_expansion_westcoast_paramfile.txt
+
+### Plotting private allelic richness (PAR) in sampling sites along the western coast of the Baltic Sea
+
+library(ggplot2)
+library(ggrepel)
+
+batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10
+p_data <- subset(p_batch_popstats, G == "10")
+
+# Plotting private allelic richness with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_smooth(aes(y = P_allelic_r), method = "lm", formula = y ~ x, 
+              color = "black", linewidth = 0.5,
+              fill = "grey", alpha = 0.3) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  box.padding = unit(0.5, "lines"),
+                  point.padding = unit(0.5, "lines"),
+                  size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+# Simple linear model to test for correlation between private allelic richness and latitude
+lm6 <- lm(P_allelic_r ~ Latitude, data = p_data)
+summary(lm6) # p = 0.1063, declining trend but NS
+
+
+### Testing whether pattern in PAR persists when only looking at sites on the eastern coast of the Baltic Sea
+
+# Functions in package ADZE (Allelic Diversity Analyzer): https://github.com/szpiech/ADZE
+# Using Dataset 4, but only keeping sampling sites PL, LT, EE, and FIE by filtering the input file ("populations.structure")
+# Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
+
+awk 'NR==1 || $2 ~ /^(FIE|EE|LT|PL)$/ {print}' populations.structure > filt.thinned.populations.structure
+
+# Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
+adze-1.0 \
+./2021_expansion_eastcoast_paramfile
+
+### Plotting private allelic richness (PAR) in sampling sites along the eastern coast of the Baltic Sea
+
+library(ggplot2)
+library(ggrepel)
+
+batch_popstats <- read.table("../DS4_2021_stacks_popstats_coords.txt", header = TRUE)
+p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
+colnames(p_allelic_r) <- c("Pop_ID", "G", "Total_loci", "P_allelic_r", "Var", "Stderr")
+p_batch_popstats <- merge(batch_popstats, p_allelic_r, by = "Pop_ID")
+
+# Only values with the largest possible sample size, G = 10
+p_data <- subset(p_batch_popstats, G == "10")
+
+# Plotting private allelic richness with G = 10
+ggplot(p_data, aes(x = Latitude)) +
+  geom_smooth(aes(y = P_allelic_r), method = "lm", formula = y ~ x, 
+              color = "black", linewidth = 0.5,
+              fill = "grey", alpha = 0.3) +
+  geom_point(aes(y = P_allelic_r), size = 4, shape = 21, color = "black", fill = "#1b9e77") +
+  geom_text_repel(aes(y = P_allelic_r, label = Pop_ID),
+                  box.padding = unit(0.5, "lines"),
+                  point.padding = unit(0.5, "lines"),
+                  size = 4, vjust = 1) +
+  labs(x = "Latitude", y = "Private allelic richness") +
+  theme_light()
+
+# Simple linear model to test for correlation between private allelic richness and latitude
+lm7 <- lm(P_allelic_r ~ Latitude, data = p_data)
+summary(lm7) # 0.02304 *

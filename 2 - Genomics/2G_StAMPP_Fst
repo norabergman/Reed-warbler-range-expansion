@@ -16,7 +16,7 @@ library(vcfR)
 library(StAMPP)
 
 # Reading in the zipped vcf file
-vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
+vcf <- read.vcfR("DS1_populations.snps.vcf.gz", verbose = TRUE)
 
 # Adding population info
 pop.data <- read.table("25_2021+2017_max10indv_popmap_colnames", sep = "\t", header = TRUE)

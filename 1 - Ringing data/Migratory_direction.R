@@ -1,5 +1,5 @@
 ### RINGING DATA ANALYSIS WORKFLOW ###
-# author: Petteri Lehikoinen (translated by Nora Bergman)
+# Author: Petteri Lehikoinen (translated by Nora Bergman)
 
 ## Packages and data preparation
 

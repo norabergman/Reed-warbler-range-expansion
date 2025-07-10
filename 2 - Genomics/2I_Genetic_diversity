@@ -11,14 +11,14 @@
 # Processing the input data
 # ADZE takes the input data in STRUCTURE format, we use the populations.structure file
 # First removing the header line created by Stacks:
-tail -n +2 populations.structure > tmpfile && mv tmpfile populations.structure
+tail -n +2 DS4_populations.structure > tmpfile && mv tmpfile DS4_populations.structure
 
 # For the parameter file, we need to know the number of data lines and loci in the input file
 # Data lines: the following minus 1 (the first row contains the locus names and therefore is not a data line)
-wc -l populations.structure # 205, minus 1 = 204
+wc -l DS4_populations.structure # 205, minus 1 = 204
 
 # Number of loci: the following minus 2 (there are two columns before the locus columns containing the sample ID and the pop ID)
-head -1 populations.structure | awk -F'\t' '{print NF}' # 246718, minus 2 = 246716
+head -1 DS4_populations.structure | awk -F'\t' '{print NF}' # 246718, minus 2 = 246716
 
 # ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \
@@ -138,7 +138,7 @@ ggplot(p_data, aes(x = Latitude)) +
 # Using Dataset 4, but excluding the two sampling sites that are not in the recently colonised range of the reed warbler, i.e. Spain (ES) and Romania (RODD & ROTR) by filtering the input file ("populations.structure")
 # Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
 
-awk 'NR==1 || $2 ~ /^(FIE|FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > recent_range_filt.populations.structure
+awk 'NR==1 || $2 ~ /^(FIE|FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' DS4_populations.structure > recent_range_filt.populations.structure
 
 # Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \
@@ -189,7 +189,7 @@ summary(lm3) # p = 3.73e-05 ***
 # Using Dataset 4, but only keeping sampling sites DEMH, DEDG, PL, LT, SE, DK, EE, and FIW by filtering the input file ("populations.structure")
 # Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
 
-awk 'NR==1 || $2 ~ /^(FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > thinned_8pops_filt.populations.structure
+awk 'NR==1 || $2 ~ /^(FIW|EE|SE|DK|LT|DEMH|DEDG|PL)$/ {print}' DS4_populations.structure > thinned_8pops_filt.populations.structure
 
 # Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \
@@ -232,7 +232,7 @@ summary(lm4) # p = 0.000421 ***
 # Using Dataset 4, but only keeping sampling sites DEMH, DEDG, PL, LT, SE, EE, and FIW by filtering the input file ("populations.structure")
 # Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
 
-awk 'NR==1 || $2 ~ /^(FIW|EE|SE|LT|DEMH|DEDG|PL)$/ {print}' populations.structure > thinned_7pops_filt.populations.structure
+awk 'NR==1 || $2 ~ /^(FIW|EE|SE|LT|DEMH|DEDG|PL)$/ {print}' DS4_populations.structure > thinned_7pops_filt.populations.structure
 
 # Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \
@@ -275,7 +275,7 @@ summary(lm5) # p = 0.00225 **
 # Using Dataset 4, but only keeping sampling sites DEMH, DEDG, DK, SE, and FIW by filtering the input file ("populations.structure")
 # Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
 
-awk 'NR==1 || $2 ~ /^(FIW|SE|DK|DEMH|DEDG)$/ {print}' populations.structure > westcoast_filt.populations.structure
+awk 'NR==1 || $2 ~ /^(FIW|SE|DK|DEMH|DEDG)$/ {print}' DS4_populations.structure > westcoast_filt.populations.structure
 
 # Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \
@@ -318,7 +318,7 @@ summary(lm6) # p = 0.1063, declining trend but NS
 # Using Dataset 4, but only keeping sampling sites PL, LT, EE, and FIE by filtering the input file ("populations.structure")
 # Keeping only the first row (with locus ID's) and the rows that have a specific string (specific pop ID) in the second column
 
-awk 'NR==1 || $2 ~ /^(FIE|EE|LT|PL)$/ {print}' populations.structure > filt.thinned.populations.structure
+awk 'NR==1 || $2 ~ /^(FIE|EE|LT|PL)$/ {print}' DS4_populations.structure > filt.thinned.populations.structure
 
 # Then, ADZE was run with the following command (all analysis parameters provided in the parameter file):
 adze-1.0 \

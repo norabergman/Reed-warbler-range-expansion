@@ -19,7 +19,7 @@ NON_DATA_COLS 2
 GROUP_BY_COL 2
 
 #Name of the datafile
-DATA_FILE populations.structure
+DATA_FILE DS4_populations.structure
 
 #Name of the allelic richness output file
 R_OUT allelic_richness

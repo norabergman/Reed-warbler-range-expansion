@@ -11,7 +11,7 @@ library(geosphere)
 
 ### FORMATTING DATA ###
 # From STRUCTURE format (Stacks: populations.structure) to conStruct format
-conStruct.allele.freq <- structure2conStruct(infile = "populations.structure",
+conStruct.allele.freq <- structure2conStruct(infile = "DS1_populations.structure",
                                              onerowperind = FALSE,
                                              start.loci = 3,
                                              start.samples = 3,

@@ -27,6 +27,8 @@ conStruct.coords <- data.matrix(sample.coords[2:3], rownames.force = NA)
 conStruct.distances <- distm(conStruct.coords, fun = distGeo) # zeros on diagonal unlike in rdist.earth (due to rounding errors of the functions)
 
 ### CROSS-VALIDATION ###
+# This takes a long time to run (more than 1 week without parallelisation), make sure you have the resources available (e.g. as a supercomputer batch job). 
+# Options for parallelisation are available in the package.
 
 my.xvals <- x.validation(train.prop = 0.9,
                          n.reps = 4,

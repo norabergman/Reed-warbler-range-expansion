@@ -102,6 +102,9 @@ lat_ordered <- lat_data %>%
 pop_levels <- lat_ordered$Pop
 pop_colors <- setNames(viridisLite::viridis(length(pop_levels), option = "turbo"), pop_levels)
 
+# Save the colours for later use (in sample map etc)
+save(pop_colors, file = "pop_colours.RData")
+
 # Reorder factor levels in PCA scores
 pca.scores$Population <- factor(pca.scores$Population, levels = pop_levels)
 

@@ -457,6 +457,14 @@ populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017
 -W DS1_whitelist_thin3000_minmac3_random-snp \
 -t $SLURM_CPUS_PER_TASK --hwe --vcf --ordered-export --structure --plink
 
+# Preparing and renaming the analysis input files for clarity
+mv populations.snps.vcf DS1_populations.snps.vcf
+
+module load samtools
+bgzip -c DS1_populations.snps.vcf > DS1_populations.snps.vcf.gz
+
+mv populations.structure DS1_populations.structure
+
 
 ### Preparing Dataset 2: Full, linkage-pruned RAD locus dataset ###
 
@@ -490,6 +498,9 @@ populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021+2017
 -W DS2_whitelist_thin3000_minmac3_H \
 --fstats --smooth --bootstrap-archive \
 -t $SLURM_CPUS_PER_TASK --vcf --ordered-export --radpainter --plink
+
+# Renaming the analysis input files for clarity
+mv populations.haps.radpainter DS2_populations.haps.radpainter
 
 
 ### Preparing Dataset 3: Batch-effect-free, linkage-pruned SNP dataset ###
@@ -525,6 +536,12 @@ populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021_max1
 -W DS3_whitelist_thin3000_minmac3_random-snp \
 -t $SLURM_CPUS_PER_TASK --ordered-export --vcf --structure --plink
 
+# Renaming the analysis input files for clarity
+mv populations.snps.vcf DS3_populations.snps.vcf
+
+module load samtools
+bgzip -c DS3_populations.snps.vcf > DS3_populations.snps.vcf.gz
+
 
 ### Preparing Dataset 4: Batch-effect-free, full RAD locus dataset (not linkage-pruned) ###
 
@@ -538,3 +555,6 @@ populations -P ../../stacks.ref/ALLstacks_v262/ --popmap ../../info/25_2021_max1
 -O ./ \
 -p 9 -r 0.80 -H --min-mac 3 --max-obs-het 0.70 -B blacklist_sexrem_min-meanDP10_max-meanDP88 \
 -t $SLURM_CPUS_PER_TASK --ordered-export --vcf --structure --plink
+
+# Renaming the analysis input files for clarity
+mv populations.structure DS4_populations.structure

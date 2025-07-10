@@ -15,7 +15,7 @@ library(viridisLite)
 library(viridis)
 
 # Reading vcf data
-vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
+vcf <- read.vcfR("DS1_populations.snps.vcf.gz", verbose = TRUE)
 
 # Show summary of object (samples, variants, size, missing data)
 vcf
@@ -228,7 +228,7 @@ custom_legend <- ggplot() +
     aes(x = x_shape, y = y, shape = Population),
     color = "black", size = 4.2, stroke = 0.6
   ) +
-  # Inner fill layer (smaller point, no border)
+  # Inner fill layer
   geom_point(
     data = legend_df[legend_df$Fillable, ],
     aes(x = x_shape, y = y, shape = Population, fill = Population),

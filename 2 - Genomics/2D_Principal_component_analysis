@@ -15,7 +15,7 @@ library(viridisLite)
 library(viridis)
 
 # Reading vcf data
-vcf <- read.vcfR("DS1_populations.snps.vcf.gz", verbose = TRUE)
+vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
 
 # Show summary of object (samples, variants, size, missing data)
 vcf

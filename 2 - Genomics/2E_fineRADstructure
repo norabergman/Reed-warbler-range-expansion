@@ -1,0 +1,143 @@
+# fineRADstructure
+
+# https://github.com/millanek/fineRADstructure
+# Using Dataset 2
+# As input file, using the populations.haps.radpainter output by STACKS populations
+
+# Running the analyses
+module load gcc
+module load fineradstructure
+
+RADpainter paint populations.haps.radpainter
+
+finestructure -x 100000 -y 100000 -z 1000 populations.haps_chunks.out populations.haps_chunks.mcmc.xml
+
+finestructure -m T -x 10000 populations.haps_chunks.out populations.haps_chunks.mcmc.xml populations.haps_chunks.mcmcTree.xml
+
+# Plotting fineRADstructure results (R script)
+
+# Plotting the results using the code provided with the fineRADstructure package with some modifications
+# This code uses the "FinestructureLibrary.R" file also included in the package (download this separately from https://github.com/millanek/fineRADstructure)
+
+##################################################################
+## A simple R example for plotting fineRADstructure output
+## Author: Milan Malinsky (millanek@gmail.com), adapted from a Finestructure R Example by Daniel Lawson (dan.lawson@bristol.ac.uk) and using his library of R functions
+## Date: 04/04/2016
+## Notes:
+##    These functions are provided for help working with fineSTRUCTURE output files
+## but are not a fully fledged R package for a reason: they are not robust
+## and may be expected to work only in some specific cases - often they may require 
+## at least minor modifications! USE WITH CAUTION!
+## SEE FinestrictureLibrary.R FOR DETAILS OF THE FUNCTIONS
+##
+## Licence: GPL V3
+## 
+##    This program is free software: you can redistribute it and/or modify
+##    it under the terms of the GNU General Public License as published by
+##    the Free Software Foundation, either version 3 of the License, or
+##    (at your option) any later version.
+
+##    This program is distributed in the hope that it will be useful,
+##    but WITHOUT ANY WARRANTY; without even the implied warranty of
+##    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+##    GNU General Public License for more details.
+
+##    You should have received a copy of the GNU General Public License
+##    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+### 1) EDIT THE FOLLOWING THREE LINES TO PROVIDE PATHS TO THE fineRADstructure OUTPUT 
+setwd("./") ## The directory where the files are located
+chunkfile<-"populations.haps_chunks.out" ## RADpainter output file
+mcmcfile<-"populations.haps_chunks.mcmc.xml" ## finestructure mcmc file
+treefile<-"populations.haps_chunks.mcmcTree.xml" ## finestructure tree file
+### 2) EDIT THIS PATH TO WHERE YOU WANT THE PLOTS:
+plotsFolder <- "./"
+### 3) SET VALUES FOR THESE VARIABLES: "analysisName" will be included in output plots
+analysisName <- "radpainter_minmac3_thin3000";  maxIndv <- 10000; maxPop<-10000
+
+### 4) EDIT THE PATH TO YOUR COPY of FinestructureLibrary.R
+source("./FinestructureLibrary.R", chdir = TRUE) # read in the R functions, which also calls the needed packages
+
+### 5) EXECUTE THE CODE ABOVE AND THE REST OF THE CODE BELOW
+## make some colours
+some.colors<-MakeColorYRP() # these are yellow-red-purple
+some.colorsEnd<-MakeColorYRP(final=c(0.2,0.2,0.2)) # as above, but with a dark grey final for capped values
+###### READ IN THE CHUNKCOUNT FILE
+dataraw<-as.matrix(read.table(chunkfile,row.names=1,header=T,skip=1)) # read in the pairwise coincidence 
+###### READ IN THE MCMC FILES
+mcmcxml<-xmlTreeParse(mcmcfile) ## read into xml format
+mcmcdata<-as.data.frame.myres(mcmcxml) ## convert this into a data frame
+###### READ IN THE TREE FILES
+treexml<-xmlTreeParse(treefile) ## read the tree as xml format
+ttree<-extractTree(treexml) ## extract the tree into ape's phylo format
+
+## Reduce the amount of significant digits printed in the posteror assignment probabilities (numbers shown in the tree):
+ttree$node.label[ttree$node.label!=""] <-format(as.numeric(ttree$node.label[ttree$node.label!=""]),digits=2)
+ # convert to dendrogram format
+tdend<-myapetodend(ttree,factor=1)
+
+### Added by NB, flipping some dendrogram branches
+# This is just a visual adjustment to place the most closely related individuals next to each other, not affecting the tree stucture
+
+library(dendextend)
+
+# Reading in a file of the new order of dendrogram leaves (i.e. samples)
+# This was extracted by rotating the ttree object based on node numbers, which is not possible in dendextend.
+# Why we do it in dendextend and not just in ttree, is that the posterior probability values for each node did not stay in correct order when converting the ttree object to the dendrogram, despite my best efforts...
+# The rotated ttree nodes that the new order is based on: 234,235,236,252,253,174
+
+# Reading in the file
+new_dendro_order <- read.delim("dendrogram_new_order.txt", header = F)
+# Making it a character vector for dendextend
+new_dendro_order <- as.character(new_dendro_order[[1]])
+
+# Rotate dendrogram leaves
+tdend_rotated <- rotate(tdend, new_dendro_order)
+plot(tdend_rotated) # OK
+
+### Continuing with the package code, using the rotated dendrogram
+
+## Now we work on the MAP state
+mapstate<-extractValue(treexml,"Pop") # map state as a finestructure clustering
+mapstatelist<-popAsList(mapstate) # .. and as a list of individuals in populations
+popnames<-lapply(mapstatelist,NameSummary) # population names IN A REVERSIBLE FORMAT (I.E LOSSLESS)
+## NOTE: if your population labels don't correspond to he format we used (NAME<number>) YOU MAY HAVE TROUBLE HERE. YOU MAY NEED TO RENAME THEM INTO THIS FORM AND DEFINE YOUR POPULATION NAMES IN popnamesplot BELOW
+popnamesplot<-lapply(mapstatelist,NameMoreSummary) # a nicer summary of the populations
+names(popnames)<-popnamesplot # for nicety only
+names(popnamesplot)<-popnamesplot # for nicety only
+popdend<-makemydend(tdend_rotated,mapstatelist) # use NameSummary to make popdend
+popdend<-fixMidpointMembers(popdend) # needed for obscure dendrogram reasons
+popdendclear<-makemydend(tdend_rotated,mapstatelist,"NameMoreSummary")# use NameMoreSummary to make popdend
+popdendclear<-fixMidpointMembers(popdendclear) # needed for obscure dendrogram reasons
+
+	
+########################
+## Plot 1: COANCESTRY MATRIX
+fullorder<-labels(tdend_rotated) # the order according to the tree
+datamatrix<-dataraw[fullorder,fullorder] # reorder the data matrix
+
+tmpmat<-datamatrix 
+tmpmat[tmpmat>maxIndv]<-maxIndv #  # cap the heatmap
+pdf(file=paste(plotsFolder,analysisName,"-SimpleCoancestry.pdf",sep=""),height=50,width=50)
+plotFinestructure(tmpmat,dimnames(tmpmat)[[1]],dend=tdend_rotated,cols=some.colorsEnd,cex.axis=1.1,edgePar=list(p.lwd=0,t.srt=90,t.off=-0.1,t.cex=1.2))
+dev.off()
+
+
+## Optional: Plotting the original dendrogram order to double check that the clustering is the same in the plot based on the rotated dendrogram, just rotated at the selected nodes
+
+#popdend<-makemydend(tdend,mapstatelist) # use NameSummary to make popdend
+#popdend<-fixMidpointMembers(popdend) # needed for obscure dendrogram reasons
+#popdendclear<-makemydend(tdend,mapstatelist,"NameMoreSummary")# use NameMoreSummary to make popdend
+#popdendclear<-fixMidpointMembers(popdendclear) # needed for obscure dendrogram reasons
+	
+########################
+## Plot 1: COANCESTRY MATRIX
+#fullorder<-labels(tdend) # the order according to the tree
+#datamatrix<-dataraw[fullorder,fullorder] # reorder the data matrix
+
+#tmpmat<-datamatrix 
+#tmpmat[tmpmat>maxIndv]<-maxIndv #  # cap the heatmap
+#pdf(file=paste(plotsFolder,analysisName,"-SimpleCoancestry.pdf",sep=""),height=50,width=50)
+#plotFinestructure(tmpmat,dimnames(tmpmat)[[1]],dend=tdend,cols=some.colorsEnd,cex.axis=1.1,edgePar=list(p.lwd=0,t.srt=90,t.off=-0.1,t.cex=1.2))
+#dev.off()

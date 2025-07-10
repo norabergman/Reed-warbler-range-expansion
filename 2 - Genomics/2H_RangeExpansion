@@ -1,0 +1,156 @@
+### Formatting data for RangeExpansion
+
+# Using Dataset 3
+# VCF to plink format
+module load plink
+
+plink2 --vcf populations.snps.vcf --set-missing-var-ids "@_#" --make-bed --out 2021_max10indv_minmac3_thin3000 --allow-extra-chr
+
+### RangeExpansion
+
+# Original package https://github.com/BenjaminPeter/rangeexpansion
+# Modified and corrected functions from on Kemppainen et al. 2024, code available here: https://figshare.com/articles/software/Data_code_and_pipelines_for_Data_code_and_pipelines_for_Boundary_Effects_Cause_False_Signals_of_Range_Expansions_in_Population_Genomic_Data_/25997209?file=46944607
+
+# Using Dataset 3
+
+library(Matrix)
+library(geosphere)
+library(data.table)
+library(parallel)
+library(geosphere)
+library(survival)
+library(snpStats)
+
+source("./Functions.R") # From https://figshare.com/articles/software/Data_code_and_pipelines_for_Data_code_and_pipelines_for_Boundary_Effects_Cause_False_Signals_of_Range_Expansions_in_Population_Genomic_Data_/25997209?file=46944607
+
+snp.file <- "2021_max10indv_minmac3_thin3000.bed"
+coord.file <- "25_2021_max10indv_no_regions.csv"
+
+ploidy <- 2
+region <- list(NULL)
+
+raw.data <- load.data(snp.file, coord.file, sep = ';', ploidy = ploidy)
+pop <- make.pop(raw.data, ploidy)
+
+# estimate psi with new function (fixing a major bug in the original package by inverting the matrix) using mclapply and calculate significance values using the binomial test
+
+PSIs <- get.all.psi.mc.bin(pop,n=2,cores=2)
+write.table(PSIs[["psi"]], "inverted_psi.tsv", sep = "\t")
+write.table(PSIs[["pvals"]], "inverted_psi_pvals.tsv", sep = "\t")
+write.table(PSIs[["cnts"]], "inverted_psi_cnts.tsv", sep = "\t")
+
+## this is the original implementation
+
+#psi_org <- get.all.psi(pop,n=2)
+#write.table(psi_org, "original_psi.tsv", sep = "\t")
+
+# Inverted psi values
+inv_psi <- read.table("inverted_psi.tsv")
+inv_psi<- sapply(inv_psi, as.numeric)
+colnames(inv_psi) <- c("DEDG","DEMH","DK","EE","ES","FIE","FIW","LT","PL","RODD","ROTR","SE")
+rownames(inv_psi) <- c("DEDG","DEMH","DK","EE","ES","FIE","FIW","LT","PL","RODD","ROTR","SE")
+inv_psi[inv_psi == 0] <- NA
+
+mean(abs(inv_psi), na.rm=TRUE) # Calculating the mean absolute psi
+
+range(abs(as.matrix(inv_psi)), na.rm = TRUE) # Range of absolute psi values in the matrix
+
+# P-values of inverted psi (from binomial test)
+inv_psi_pvals <- read.table("inverted_psi_pvals.tsv")
+inv_psi_pvals<- sapply(inv_psi_pvals, as.numeric)
+colnames(inv_psi_pvals) <- c("DEDG","DEMH","DK","EE","ES","FIE","FIW","LT","PL","RODD","ROTR","SE")
+rownames(inv_psi_pvals) <- c("DEDG","DEMH","DK","EE","ES","FIE","FIW","LT","PL","RODD","ROTR","SE")
+
+# Calculating the % of significant comparisons
+sum(inv_psi_pvals <= 0.05, na.rm=TRUE)/2
+sum(inv_psi_pvals > 0, na.rm=TRUE)/2
+(sum(inv_psi_pvals <= 0.05, na.rm=TRUE)/2) / (sum(inv_psi_pvals > 0, na.rm=TRUE)/2) 
+
+### Non-TDoA ###
+
+# Getting a matrix of the geographic distances between the sampling sites
+coords <- read.delim("25_2021_max10indv_no_regions.csv", sep = ";")
+
+coords_unique <- coords[!duplicated(coords$pop),] # Making a data frame with just one row per population
+populations <- unique(coords$pop) 
+dist_matrix <- matrix(NA, nrow = length(populations), ncol = length(populations))
+rownames(dist_matrix) <- populations
+colnames(dist_matrix) <- populations
+# Loop through each pair of populations and calculate the distance
+for (i in 1:length(populations)) {
+  for (j in 1:length(populations)) {
+    if (i != j) {
+      # Getting the coordinates for the current pair of populations
+      pop1_coords <- coords_unique[coords_unique$pop == populations[i], c("longitude", "latitude")]
+      pop2_coords <- coords_unique[coords_unique$pop == populations[j], c("longitude", "latitude")]
+      
+      # Calculating the distance using Vincenty formula (in meters)
+      dist_matrix[i, j] <- distVincentySphere(pop1_coords, pop2_coords)
+    } else {
+      dist_matrix[i, j] <- 0  # Distance from a population to itself is 0
+    }
+  }
+}
+
+# Making a matrix with the calculated distances in kilometers
+dist_matrix_km <- dist_matrix / 1000
+
+# Calculating Fst values for this exact same dataset (Dataset 3) using the StAMPP package
+library(ade4)
+library(adegenet)
+library(ape)
+library(pegas)
+library(vcfR)
+library(StAMPP)
+
+# Reading in the zipped vcf file (Dataset 3)
+vcf <- read.vcfR("./populations.snps.vcf.gz", verbose = TRUE)
+
+# Adding population info
+pop.data <- read.table("25_2021_max10indv_popmap_colnames", sep = "\t", header = TRUE)
+
+# Converting vcf data into a genlight object & adding ploidy & population info
+geno <- vcfR2genlight(vcf)
+ploidy(geno) <- 2
+pop(geno) <- pop.data$pop
+
+# StAMPP Fst
+fst_results <- stamppFst(geno, nboots = 5000, percent = 95, nclusters = 2) 
+
+# Save the results as an Rdata object
+saveRDS(fst_results, "stampp_fst_results.rds")
+
+# Making a matrix of Fst values
+stampp_fst <- readRDS("stampp_fst_results.rds")
+stampp_fst_matrix <- as.matrix(stampp_fst[["Fsts"]])
+stampp_fst_matrix[upper.tri(stampp_fst_matrix)] <- stampp_fst_matrix[lower.tri(stampp_fst_matrix)]
+
+### Calculating the most likely expansion origin using the non-TDoA method ###
+# Needed for checking where the standardised psi value fall in Kemppainen et al.'s (2024) simulations
+# i.e. in the false positive range or not
+non_tdoa <- do.call(rbind, lapply(1:ncol(dist_matrix_km), function(c){
+  out <- cor.test(dist_matrix_km[,c], inv_psi[,c])  # Perform correlation test
+  r_squared <- out$estimate^2  # Square the correlation coefficient
+  c(out$estimate, r_squared, out$p.value)  # Return r, r², and p-value
+}))
+
+# Convert to a matrix with proper column names
+colnames(non_tdoa) <- c("r", "r_squared", "p_value")
+rownames(non_tdoa) <- rownames(stampp_fst_matrix)
+
+# Also make into a dataframe
+non_tdoa_df <- as.data.frame(non_tdoa)
+
+### Rescaling the mean absolute value of ψ by the mean pairwise FST 
+# ε = |ψ| / mean(Fst)
+mean_abs_psi <- mean(abs(inv_psi), na.rm = TRUE) 
+mean_abs_psi # = 0.006271828
+mean_fst <- mean(stampp_fst_matrix, na.rm = TRUE)
+mean_fst # = 0.006792534
+
+mean_abs_psi / mean_fst # = 0.9233414
+
+### Finding the value of τ (the strongest positive r2 value between any population pair from the non-TDoA method)
+max(non_tdoa_df$r_squared, na.rm = TRUE) # = 0.2867479
+
+# These values were compared to Fig. 5 in Kemppainen et al. 2024

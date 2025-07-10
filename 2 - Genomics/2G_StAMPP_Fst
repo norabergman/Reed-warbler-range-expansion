@@ -1,0 +1,97 @@
+# Pairwise Fst (package StAMPP)
+
+# https://github.com/cran/StAMPP
+# Using Dataset 1
+
+### Fst calculation using StAMPP ###
+
+# Allows the calculation of confidence intervals and statistical significance
+# Incorporates the Weir & Cockerham (1984) adjustment for unequal population sizes
+
+library(ade4)
+library(adegenet)
+library(ape)
+library(pegas)
+library(vcfR)
+library(StAMPP)
+
+# Reading in the zipped vcf file
+vcf <- read.vcfR("populations.snps.vcf.gz", verbose = TRUE)
+
+# Adding population info
+pop.data <- read.table("25_2021+2017_max10indv_popmap_colnames", sep = "\t", header = TRUE)
+
+# Converting vcf data into a genlight object & adding ploidy & population info
+geno <- vcfR2genlight(vcf)
+ploidy(geno) <- 2
+pop(geno) <- pop.data$pop
+
+# StAMPP Fst
+fst_results <- stamppFst(geno, nboots = 5000, percent = 95, nclusters = 20) 
+
+# Save the results as an Rdata object
+saveRDS(fst_results, "stampp_fst_results.rds")
+
+
+### Plotting Fst ###
+
+library(reshape2)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+
+# Formatting Fst results
+
+fst_results <- readRDS("stampp_fst_results.rds") # StAMPP results
+pop_lat <- read.delim("25_2021+2017_pop_latitudes.txt") # Latitude data
+
+Fsts <- fst_results$Fsts       # The pairwise Fst matrix
+Pvalues <- fst_results$Pvalues  # The matrix of p-values
+Bootstraps <- fst_results$Bootstraps  # Bootstrap values
+
+Fsts[upper.tri(Fsts)] <- t(Fsts)[upper.tri(Fsts)] # Filling in the upper triangle of the Fst matrix
+pop_lat_ordered <- pop_lat[order(pop_lat$Latitude), ] # Reordering `pop_lat` by latitude
+pop_order <- pop_lat_ordered$Pop # Extracting the population order based on latitude
+Fsts_ordered <- Fsts[pop_order, pop_order] # Reordering the rows and columns of the Fsts matrix to match the latitude order
+Fsts_ordered[upper.tri(Fsts_ordered)] <- NA # Only keeping the lower triangle again -> setting upper triangle to NAs
+
+# Formatting corresponding p-values into the same order
+Pvalues[upper.tri(Pvalues)] <- t(Pvalues)[upper.tri(Pvalues)] # Filling in the upper triangle of the Pvalues matrix
+Pvalues_ordered <- Pvalues[pop_order, pop_order] # Reordering the rows and columns of the Pvalues matrix to match the latitude order
+Pvalues_ordered[upper.tri(Pvalues_ordered)] <- NA # Only keeping the lower triangle again -> setting upper triangle to NAs
+
+# Combining these into long format for ggplot2
+Fsts_long <- melt(Fsts_ordered, na.rm = FALSE)  # Keep NAs for plotting
+colnames(Fsts_long) <- c("Pop1", "Pop2", "Fst") # Adding colnames
+Pvalues_long <- melt(Pvalues_ordered, na.rm = FALSE)  # Keep NAs for plotting
+colnames(Pvalues_long) <- c("Pop1", "Pop2", "Pvalues") # Adding colnames
+
+fst_pvalue_combined <- bind_cols(Fsts_long, Pvalues = Pvalues_long$Pvalues) # Binding columns without reordering -> check that the order is exactly the same!
+fst_pvalue_combined <- fst_pvalue_combined %>%
+  select(Pop1, Pop2, Fst, Pvalues) # Keeping only necessary columns
+
+# Set negative Fst values to 0 for coloring purposes
+fst_pvalue_combined$Fst_plot <- ifelse(fst_pvalue_combined$Fst < 0, 0, fst_pvalue_combined$Fst)
+
+# Plotting the heatmap with conditional formatting based on the p-values
+ggplot(fst_pvalue_combined, aes(x = Pop1, y = Pop2, fill = Fst_plot)) +
+  geom_tile(color = "white") +
+  scale_fill_gradientn(
+    colors = brewer.pal(9, "YlOrRd"),   # Existing colour gradient for Fst values
+    limits = c(0, max(fst_pvalue_combined$Fst, na.rm = TRUE)),  # Colour scale limit
+    na.value = "grey90",  # Set missing values (NA) to grey
+    name = "Fst value"
+  ) +
+  # Add Fst values as text with conditional coloring based on Pvalues
+  geom_text(aes(label = round(Fst, 3),
+                color = ifelse(Pvalues <= 0.05, "significant", "not_significant")),
+            size = 3.5) +
+  # Define custom color scale for text
+  scale_color_manual(values = c("significant" = "black", "not_significant" = "grey")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major = element_line(color = "lightgray"),
+        panel.grid.minor = element_blank()) +
+  theme(legend.position = "none")

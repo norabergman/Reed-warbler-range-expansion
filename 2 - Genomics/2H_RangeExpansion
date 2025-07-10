@@ -4,7 +4,7 @@
 # VCF to plink format
 module load plink
 
-plink2 --vcf populations.snps.vcf --set-missing-var-ids "@_#" --make-bed --out 2021_max10indv_minmac3_thin3000 --allow-extra-chr
+plink2 --vcf DS3_populations.snps.vcf --set-missing-var-ids "@_#" --make-bed --out DS3 --allow-extra-chr
 
 ### RangeExpansion
 
@@ -23,7 +23,7 @@ library(snpStats)
 
 source("./Functions.R") # From https://figshare.com/articles/software/Data_code_and_pipelines_for_Data_code_and_pipelines_for_Boundary_Effects_Cause_False_Signals_of_Range_Expansions_in_Population_Genomic_Data_/25997209?file=46944607
 
-snp.file <- "2021_max10indv_minmac3_thin3000.bed"
+snp.file <- "DS3.bed"
 coord.file <- "25_2021_max10indv_no_regions.csv"
 
 ploidy <- 2
@@ -104,7 +104,7 @@ library(vcfR)
 library(StAMPP)
 
 # Reading in the zipped vcf file (Dataset 3)
-vcf <- read.vcfR("./populations.snps.vcf.gz", verbose = TRUE)
+vcf <- read.vcfR("./DS3_populations.snps.vcf.gz", verbose = TRUE)
 
 # Adding population info
 pop.data <- read.table("25_2021_max10indv_popmap_colnames", sep = "\t", header = TRUE)

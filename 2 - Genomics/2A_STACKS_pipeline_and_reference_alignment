@@ -1,3 +1,6 @@
+# STACKS pipeline and reference alignment with BWA-MEM
+# https://catchenlab.life.illinois.edu/stacks/
+
 ### STACKS process_radtags ###
 
 # Running process_radtags for each lane of each plate separately

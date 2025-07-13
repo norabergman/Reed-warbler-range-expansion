@@ -278,25 +278,20 @@ d
 
 ## Linear models
 
+library(DHARMa)
+
 ##### lm tests ####
 
 # Combine data from south of latitude 49 degrees 
 asci49 <- rbind(wasci49, easci49)
 
-# Test whether ringing longitude affects recovery longitude 
-lm <- lm(WGS84DECIMALLON ~ WGS84DECIMALLON.RINGING, data = asci)
-summary(lm) #nah
+# Test whether ringing longitude affects recovery longitude (for recoveries south of latiude 49)
+lm1 <- lm(WGS84DECIMALLON ~ WGS84DECIMALLON.RINGING, data = asci49)
+simulateResiduals(lm1, plot = T) # OK
+summary(lm1)  #marginal effect i.e. birds ringed further east tend to be found 
+              #at more eastern locations (p = 0.0594)
 
-# Test whether ringing longitude affects recovery direction from ringing
-lm2 <- lm(asci$DIRECTIONTORINGINGINDEGREES ~ asci$WGS84DECIMALLON.RINGING)
-summary(lm2) #nah
-
-# Same tests as above but for recoveries south of latiude 49
-lm3 <- lm(WGS84DECIMALLON ~ WGS84DECIMALLON.RINGING, data = asci49)
-summary(lm3)  #marginal effect i.e. birds ringed further east tend to be found 
-              #at more eastern locations
-
-lm4 <- lm(asci49$DIRECTIONTORINGINGINDEGREES ~ asci49$WGS84DECIMALLON.RINGING)
-summary(lm4)
-
-
+# Test whether ringing longitude affects recovery direction from ringing (for recoveries south of latiude 49)
+lm2 <- lm(DIRECTIONTORINGINGINDEGREES ~ WGS84DECIMALLON.RINGING, data = asci49)
+simulateResiduals(lm2, plot = T) # OK
+summary(lm2) # NS

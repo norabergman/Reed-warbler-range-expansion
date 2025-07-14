@@ -31,6 +31,7 @@ adze-1.0 \
 library(ggplot2)
 library(ggrepel)
 library(dplyr)
+library(DHARMa)
 
 # Reading in a file with population ID, coordinates, and selected variables from the STACKS populations.sumstats_summary.tsv file (for Dataset 4), including nucleotide diversity (pi). As there are multiple columns with the same names (e.g. "Var" and "StdErr" for each statistic), the file was edited in Excel and is provided as an input file.
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
@@ -87,9 +88,11 @@ ggplot(a_data, aes(x = Latitude)) +
 
 # Simple linear models to test for correlation between diversity and latitude
 lm1 <- lm(Pi ~ Latitude, data = a_data)
+simulateResiduals(lm1, plot = T)
 summary(lm1) #NS
 
 lm2 <- lm(Allelic_r ~ Latitude, data = a_data)
+simulateResiduals(lm2, plot = T)
 summary(lm2) #NS
 
 # T-tests between range core and the recently colonised edge sites
@@ -148,6 +151,7 @@ adze-1.0 \
 
 library(ggplot2)
 library(ggrepel)
+library(DHARMa)
 
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
@@ -180,6 +184,7 @@ ggplot(p_data, aes(x = Latitude)) +
 
 # Simple linear model to test for correlation between private allelic richness and latitude
 lm3 <- lm(P_allelic_r ~ Latitude, data = p_data)
+simulateResiduals(lm3, plot = T) 
 summary(lm3) # p = 3.73e-05 ***
 
 
@@ -199,6 +204,7 @@ adze-1.0 \
 
 library(ggplot2)
 library(ggrepel)
+library(DHARMa)
 
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
@@ -223,6 +229,7 @@ ggplot(p_data, aes(x = Latitude)) +
 
 # Simple linear model to test for correlation between private allelic richness and latitude
 lm4 <- lm(P_allelic_r ~ Latitude, data = p_data)
+simulateResiduals(lm4, plot = T) 
 summary(lm4) # p = 0.000421 ***
 
 
@@ -242,6 +249,7 @@ adze-1.0 \
 
 library(ggplot2)
 library(ggrepel)
+library(DHARMa)
 
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
@@ -266,6 +274,7 @@ ggplot(p_data, aes(x = Latitude)) +
 
 # Simple linear model to test for correlation between private allelic richness and latitude
 lm5 <- lm(P_allelic_r ~ Latitude, data = p_data)
+simulateResiduals(lm5, plot = T) 
 summary(lm5) # p = 0.00225 **
 
 
@@ -285,6 +294,7 @@ adze-1.0 \
 
 library(ggplot2)
 library(ggrepel)
+library(DHARMa)
 
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
@@ -309,6 +319,7 @@ ggplot(p_data, aes(x = Latitude)) +
 
 # Simple linear model to test for correlation between private allelic richness and latitude
 lm6 <- lm(P_allelic_r ~ Latitude, data = p_data)
+simulateResiduals(lm6, plot = T) 
 summary(lm6) # p = 0.1063, declining trend but NS
 
 
@@ -328,6 +339,7 @@ adze-1.0 \
 
 library(ggplot2)
 library(ggrepel)
+library(DHARMa)
 
 batch_popstats <- read.table("DS4_2021_stacks_popstats_coords.txt", header = TRUE)
 p_allelic_r <- read.table("p_allelic_richness", header = FALSE)
@@ -352,4 +364,5 @@ ggplot(p_data, aes(x = Latitude)) +
 
 # Simple linear model to test for correlation between private allelic richness and latitude
 lm7 <- lm(P_allelic_r ~ Latitude, data = p_data)
+simulateResiduals(lm7, plot = T) 
 summary(lm7) # 0.02304 *

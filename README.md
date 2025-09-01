@@ -1,7 +1,7 @@
 # Reed-warbler-range-expansion
 Repository for the code for the manuscript: "Combined evidence reveals the origin of a rapid range expansion despite retained genetic diversity and a weak founder effect", investigating the origins and genomic consequences of the range expansion of the common reed warbler (_Acrocephalus scirpaceus_) in Northern Europe.
 
-Article available at: (DOI to be updated)
+Article available at: https://doi.org/10.1111/mec.70077
 
 Raw sequence data is available on NCBI SRA (BioProject PRJNA1217894).
 

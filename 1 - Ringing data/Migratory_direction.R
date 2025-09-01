@@ -4,13 +4,13 @@
 ## Packages and data preparation
 
 # Reading in the data file (re-encounter data of reed warblers ringed in Finland in years 1969-2023)
-asci <- read.csv2("Acrsci_results_20240926.txt", header = TRUE, dec = ".", sep = "|")
+asci <- read.csv2("Acrsci_results_20240926.txt", header = TRUE, dec = ".", sep = "\t")
 
 # Checking the data
 str(asci)
 # Formatting dates
 asci$EVENTDATE <- as.Date(as.character(asci$EVENTDATE), format = "%Y-%m-%d")
-asci$EVENTDATE.RINGING <- as.Date(as.character(asci$EVENTDATE.RINGING), format = "%m/%d/%Y")
+asci$EVENTDATE.RINGING <- as.Date(as.character(asci$EVENTDATE.RINGING), format = "%Y-%m-%d")
 
 # Mean longitude of ringings
 mean(asci$WGS84DECIMALLON.RINGING)
@@ -285,13 +285,13 @@ library(DHARMa)
 # Combine data from south of latitude 49 degrees 
 asci49 <- rbind(wasci49, easci49)
 
-# Test whether ringing longitude affects recovery longitude (for recoveries south of latiude 49)
+# Test whether ringing longitude affects recovery longitude (for recoveries south of latitude 49)
 lm1 <- lm(WGS84DECIMALLON ~ WGS84DECIMALLON.RINGING, data = asci49)
 simulateResiduals(lm1, plot = T) # OK
 summary(lm1)  #marginal effect i.e. birds ringed further east tend to be found 
               #at more eastern locations (p = 0.0594)
 
-# Test whether ringing longitude affects recovery direction from ringing (for recoveries south of latiude 49)
+# Test whether ringing longitude affects recovery direction from ringing (for recoveries south of latitude 49)
 lm2 <- lm(DIRECTIONTORINGINGINDEGREES ~ WGS84DECIMALLON.RINGING, data = asci49)
 simulateResiduals(lm2, plot = T) # OK
 summary(lm2) # NS
